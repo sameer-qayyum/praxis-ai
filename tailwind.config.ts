@@ -11,6 +11,23 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Praxis Brand Colors
+        praxis: {
+          DEFAULT: '#364F6B',     // Primary (Blue-Grey) - for light mode
+          50: '#f0f4f8',          // Very light
+          100: '#d9e2ec',         // Light
+          200: '#bcccdc',         // 
+          300: '#9fb3c8',         // 
+          400: '#829ab1',         // 
+          500: '#64829a',         // Lighter version for dark mode
+          600: '#4a6741',         // 
+          700: '#364F6B',         // Original primary
+          800: '#2c3e54',         // Darker
+          900: '#1a252f',         // Very dark
+          light: '#EEDAD1',       // Secondary (Soft Cream)
+          dark: '#1B1F24',        // Background Dark
+          accent: '#F9B17A',      // Accent (Peach)
+        },
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         card: {
@@ -51,6 +68,9 @@ export default {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
+      },
+      fontFamily: {
+        sans: ['var(--font-geist-sans)', 'Geist', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Helvetica', 'Arial', 'sans-serif'],
       },
       borderRadius: {
         lg: "var(--radius)",
