@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const error_description = searchParams.get('error_description')
   
   // if "next" is in param, use it as the redirect URL
-  const next = searchParams.get('next') ?? '/protected'
+  const next = searchParams.get('next') ?? '/dashboard'
 
   // Handle OAuth errors from provider
   if (error_code) {
