@@ -1,39 +1,44 @@
+import type React from "react"
 import { createClient } from "@/lib/supabase/server"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TemplateButton } from "@/components/dashboard/template/TemplateButton"
 import {
   MessageSquare,
   Upload,
   BarChart3,
   FileText,
   Users,
-  Workflow,
+  GitBranch,
   Search,
   Filter,
   Star,
-  ArrowRight,
   Zap,
   Plus,
-  FolderOpen,
+  Folder,
   Settings,
   Clock,
   TrendingUp,
 } from "lucide-react"
 
 // Icon mapping to use with dynamic icon names from the database
-const iconMapping = {
+const iconMapping: Record<string, React.ElementType> = {
+  // Exact matches from database
   MessageSquare,
   BarChart3,
   FileText,
   Users,
-  Workflow,
-  FolderOpen,
   TrendingUp,
   Settings,
   Upload,
+  // Map database values that don't have exact Lucide equivalents
+  Workflow: GitBranch,
+  FolderOpen: Folder,
+  // Fallback for any missing icons
+  default: Settings,
 }
 
 // Template type definition matching our database schema
@@ -59,24 +64,32 @@ export default async function Dashboard() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Fetch popular templates (limited to 3)
-  const { data: popularTemplates, error: popularError } = await supabase.rpc("get_popular_templates", {
-    limit_count: 3,
-  })
+  // Fetch templates from the database
+  async function getTemplates() {
+    try {
+      const { data: popularData } = await supabase.rpc("get_popular_templates", { limit_count: 3 })
 
-  // Fetch all templates
-  const { data: allTemplates, error: allError } = await supabase
-    .from("templates")
-    .select("*")
-    .order("category")
-    .order("apps_count", { ascending: false })
+      // Fetch all templates sorted by category
+      const { data: allTemplatesData } = await supabase
+        .from("templates")
+        .select("*")
+        .order("category")
+        .order("apps_count", { ascending: false })
 
-  if (popularError) {
-    console.error("Error fetching popular templates:", popularError)
+      return { popularTemplates: popularData, allTemplates: allTemplatesData }
+    } catch (error) {
+      console.error("Error fetching templates:", error)
+      return { popularTemplates: [], allTemplates: [] }
+    }
   }
 
-  if (allError) {
-    console.error("Error fetching all templates:", allError)
+  const { popularTemplates, allTemplates } = await getTemplates()
+
+  if (!popularTemplates) {
+    console.error("Error fetching popular templates")
+  }
+  if (!allTemplates) {
+    console.error("Error fetching all templates")
   }
 
   return (
@@ -109,7 +122,9 @@ export default async function Dashboard() {
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
               {(popularTemplates || []).map((template: Template) => {
-                const IconComponent = iconMapping[template.icon as keyof typeof iconMapping] || Settings
+                // Get the correct icon component
+                const IconComponent = iconMapping[template.icon] || iconMapping.default
+
                 return (
                   <Card
                     key={template.id}
@@ -154,10 +169,12 @@ export default async function Dashboard() {
                           </Badge>
                         )}
                       </div>
-                      <Button className="w-full group-hover:shadow-lg transition-shadow duration-300">
+                      <TemplateButton
+                        templateId={template.id}
+                        className="w-full group-hover:shadow-lg transition-shadow duration-300"
+                      >
                         Use This Template
-                        <ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
-                      </Button>
+                      </TemplateButton>
                     </CardContent>
                   </Card>
                 )
@@ -170,7 +187,9 @@ export default async function Dashboard() {
             <h2 className="text-2xl font-semibold mb-6">All Templates</h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {(allTemplates || []).map((template: Template) => {
-                const IconComponent = iconMapping[template.icon as keyof typeof iconMapping] || Settings
+                // Get the correct icon component
+                const IconComponent = iconMapping[template.icon] || iconMapping.default
+
                 return (
                   <Card
                     key={template.id}
@@ -208,9 +227,15 @@ export default async function Dashboard() {
                         </span>
                         <span>{template.features.length} features</span>
                       </div>
-                      <Button variant="outline" size="sm" className="w-full text-xs bg-transparent">
+                      <TemplateButton
+                        templateId={template.id}
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-xs bg-transparent"
+                        icon={false}
+                      >
                         Use Template
-                      </Button>
+                      </TemplateButton>
                     </CardContent>
                   </Card>
                 )
