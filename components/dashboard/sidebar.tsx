@@ -34,10 +34,10 @@ export function DashboardSidebar() {
 
   return (
     <div className={cn(
-      "flex flex-col h-full border-r bg-background transition-all duration-300",
+      "flex flex-col h-full transition-all duration-300",
       collapsed ? "w-[70px]" : "w-[260px]"
     )}>
-      <div className="p-4 flex justify-between items-center border-b">
+      <div className="p-4 flex justify-between items-center h-14">
         {!collapsed && (
           <Link href="/dashboard" className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
@@ -110,7 +110,7 @@ export function DashboardSidebar() {
         </nav>
       </div>
 
-      <div className="p-4 border-t mt-auto">
+      <div className="p-4 mt-auto">
         {!collapsed ? (
           <div className="text-xs text-muted-foreground">
             <span>Praxis AI</span>
