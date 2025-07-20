@@ -61,6 +61,26 @@ Tracks user connections to specific Google Sheets.
 | created_at | TIMESTAMP WITH TIME ZONE | When the connection was created |
 | updated_at | TIMESTAMP WITH TIME ZONE | When the connection was last updated |
 
+#### `public.templates`
+
+Stores application templates with metadata for the dashboard.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT | Primary key (e.g., 'feedback-form') |
+| title | TEXT | Display title of the template |
+| description | TEXT | Short description of the template |
+| category | TEXT | Category for filtering (e.g., 'Forms', 'Dashboards') |
+| icon | TEXT | Icon name from Lucide React icons |
+| color | TEXT | Tailwind CSS color class for the icon background |
+| popular | BOOLEAN | Whether template is featured (default: false) |
+| time | TEXT | Estimated setup time (e.g., '2 min setup') |
+| features | TEXT[] | Array of feature descriptions |
+| base_prompt | TEXT | Starting prompt for this template type |
+| apps_count | INTEGER | Number of apps created from this template (default: 0) |
+| created_at | TIMESTAMP WITH TIME ZONE | When the template was created |
+| updated_at | TIMESTAMP WITH TIME ZONE | When the template was last updated |
+
 ## Database Functions
 
 ### `public.handle_new_user()`
@@ -94,6 +114,30 @@ Checks if the current user has valid Google OAuth credentials.
 - **Returns**: BOOLEAN - true if valid credentials exist
 - **Security**: SECURITY DEFINER - Runs with elevated privileges
 
+### `public.get_popular_templates(limit_count INTEGER)`
+
+Retrieves the most popular templates based on usage count.
+
+- **Parameters**: 
+  - `limit_count`: INTEGER - Maximum number of templates to return (default: 5)
+- **Returns**: SETOF templates - Collection of template records
+
+### `public.get_templates_by_category(category_name TEXT)`
+
+Retrieves templates filtered by category.
+
+- **Parameters**: 
+  - `category_name`: TEXT - Category name to filter by
+- **Returns**: SETOF templates - Collection of template records
+
+### `public.increment_template_app_count(template_id TEXT)`
+
+Increments the app count for a template when a new app is created from it.
+
+- **Parameters**: 
+  - `template_id`: TEXT - ID of the template used
+- **Returns**: void
+
 ## Row Level Security (RLS) Policies
 
 ### profiles
@@ -112,11 +156,16 @@ Checks if the current user has valid Google OAuth credentials.
 - **Users can update own Google Sheets connections**: Restricts UPDATE to user's own connections
 - **Users can delete own Google Sheets connections**: Restricts DELETE to user's own connections
 
+### templates
+
+- **Authenticated users can view templates**: Allows any authenticated user to view template records
+
 ## Relationships
 
 - **profiles.id → auth.users.id**: One-to-one relationship between auth users and profiles
 - **oauth_credentials.user_id → auth.users.id**: One-to-many relationship (user can have multiple OAuth providers)
 - **google_sheets_connections.user_id → auth.users.id**: One-to-many relationship (user can connect multiple sheets)
+- **No foreign keys in templates**: Templates are standalone reference data accessible to all authenticated users
 
 ## Secure Data Handling
 

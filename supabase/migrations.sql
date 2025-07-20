@@ -148,7 +148,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Check if user has valid Google Sheets token
+-- Check if user has valid Google token
 CREATE OR REPLACE FUNCTION public.has_valid_google_token()
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -164,3 +164,74 @@ BEGIN
   RETURN token_exists;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create templates table for app templates
+CREATE TABLE public.templates (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  color TEXT NOT NULL,
+  popular BOOLEAN DEFAULT false,
+  time TEXT,
+  features TEXT[] NOT NULL,
+  base_prompt TEXT,
+  apps_count INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create RLS policies for templates
+ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
+
+-- Policy to allow all authenticated users to view templates
+CREATE POLICY "Authenticated users can view templates" 
+  ON public.templates 
+  FOR SELECT 
+  USING (auth.role() = 'authenticated');
+
+-- Function to get most popular templates
+CREATE OR REPLACE FUNCTION public.get_popular_templates(limit_count INTEGER DEFAULT 5)
+RETURNS SETOF public.templates AS $$
+BEGIN
+  RETURN QUERY
+    SELECT * FROM public.templates
+    ORDER BY apps_count DESC, created_at DESC
+    LIMIT limit_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get templates by category
+CREATE OR REPLACE FUNCTION public.get_templates_by_category(category_name TEXT)
+RETURNS SETOF public.templates AS $$
+BEGIN
+  RETURN QUERY
+    SELECT * FROM public.templates
+    WHERE category = category_name
+    ORDER BY apps_count DESC, title ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Insert initial template data
+INSERT INTO public.templates (id, title, description, category, icon, color, popular, time, features, base_prompt, apps_count) VALUES
+('feedback-form', 'Customer Feedback Form', 'Collect ratings, comments, and suggestions with automated follow-ups', 'Forms', 'MessageSquare', 'bg-blue-500', true, '2 min setup', ARRAY['Rating scales', 'File uploads', 'Email notifications', 'Analytics dashboard'], 'Create a customer feedback form with rating scales and comment fields', 24),
+('sales-dashboard', 'Sales Dashboard', 'Track revenue, leads, and team performance with real-time charts', 'Dashboards', 'BarChart3', 'bg-green-500', true, '3 min setup', ARRAY['Revenue tracking', 'Lead pipeline', 'Team metrics', 'Goal tracking'], 'Build a sales dashboard with revenue charts and team performance metrics', 18),
+('client-intake', 'Client Intake System', 'Streamline onboarding with forms, document collection, and workflows', 'Forms', 'FileText', 'bg-purple-500', false, '4 min setup', ARRAY['Multi-step forms', 'Document upload', 'Auto workflows', 'Client portal'], 'Create a client onboarding system with multi-step forms and document collection', 12),
+('employee-directory', 'Employee Directory', 'Manage team contacts, roles, and organizational structure', 'Internal Tools', 'Users', 'bg-orange-500', false, '2 min setup', ARRAY['Contact management', 'Org chart', 'Search & filter', 'Role management'], 'Build an employee directory with search and organizational structure', 8),
+('project-tracker', 'Project Tracker', 'Monitor project progress, tasks, and team collaboration', 'Internal Tools', 'Workflow', 'bg-teal-500', true, '5 min setup', ARRAY['Task management', 'Progress tracking', 'Team collaboration', 'Deadline alerts'], 'Create a project management tool with task tracking and team collaboration', 15),
+('inventory-manager', 'Inventory Manager', 'Track stock levels, orders, and supplier information', 'Internal Tools', 'FolderOpen', 'bg-indigo-500', false, '3 min setup', ARRAY['Stock tracking', 'Low stock alerts', 'Supplier management', 'Order history'], 'Build an inventory management system with stock tracking and supplier information', 10),
+('event-registration', 'Event Registration', 'Manage event signups, payments, and attendee communication', 'Forms', 'Users', 'bg-pink-500', false, '3 min setup', ARRAY['Registration forms', 'Payment processing', 'Email confirmations', 'Attendee list'], 'Create an event registration system with payment processing and attendee management', 9),
+('expense-tracker', 'Expense Tracker', 'Track business expenses, receipts, and generate reports', 'Internal Tools', 'TrendingUp', 'bg-red-500', false, '2 min setup', ARRAY['Expense logging', 'Receipt upload', 'Category tracking', 'Monthly reports'], 'Build an expense tracking system with receipt uploads and reporting', 7);
+
+-- Function to increment app count for a template
+CREATE OR REPLACE FUNCTION public.increment_template_app_count(template_id TEXT)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.templates
+  SET 
+    apps_count = apps_count + 1,
+    updated_at = NOW()
+  WHERE id = template_id;
+END;
+$$ LANGUAGE plpgsql;
