@@ -6,6 +6,7 @@
 # Project Structure & Architecture
 - Follow Next.js patterns and use the App Router.
 - Correctly determine when to use server vs. client components in Next.js.
+- create components that are manageable and easy to understand and update.
 
 # Styling & UI
 - Use Tailwind CSS for styling.
