@@ -1,7 +1,7 @@
 'use client'
 "use client"
 
-import { ReactNode, useState } from "react"
+import {useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Check } from "lucide-react"
 import { WizardProgress } from "./WizardProgress"
@@ -22,18 +22,21 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const steps = [
     {
       number: 1,
+      id: "connect-google-sheets",
       title: "Connect Google Sheets",
       description: "Authorize access to your Google Sheets",
       status: currentStep === 1 ? "current" : currentStep > 1 ? "complete" : "upcoming"
     },
     {
       number: 2,
+      id: "upload-form",
       title: "Upload Form",
       description: "Upload your PDF, Word, or Excel form",
       status: currentStep === 2 ? "current" : currentStep > 2 ? "complete" : "upcoming"
     },
     {
       number: 3,
+      id: "review-fields",
       title: "Review Fields",
       description: "Customize the extracted form fields",
       status: currentStep === 3 ? "current" : currentStep > 3 ? "complete" : "upcoming"

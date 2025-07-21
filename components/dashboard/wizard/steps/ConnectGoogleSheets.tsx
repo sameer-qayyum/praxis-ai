@@ -12,7 +12,7 @@ export function ConnectGoogleSheets() {
       
       <p className="text-center text-gray-600 mb-8 max-w-md">
         Praxis uses Google Sheets as your database. We'll create a 
-        new sheet to store your form responses.
+        new sheet or your specified sheet to store and read your data.
       </p>
       
       <div className="bg-blue-50 p-6 rounded-lg mb-8 max-w-md w-full">
@@ -20,11 +20,11 @@ export function ConnectGoogleSheets() {
         <ul className="space-y-2 text-blue-700">
           <li className="flex items-start">
             <span className="mr-2">•</span>
-            <span>Create a new Google Sheet for your form data</span>
+            <span>Create a new Google Sheet for your form data or use your specified sheet</span>
           </li>
           <li className="flex items-start">
             <span className="mr-2">•</span>
-            <span>Set up automatic data syncing</span>
+            <span>Set up automatic secure data syncing</span>
           </li>
           <li className="flex items-start">
             <span className="mr-2">•</span>
