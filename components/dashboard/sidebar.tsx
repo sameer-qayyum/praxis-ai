@@ -9,7 +9,14 @@ import { PlusIcon, LayoutDashboardIcon, GridIcon, ShareIcon, ChevronLeftIcon } f
 
 export function DashboardSidebar() {
   const pathname = usePathname()
+  // Initialize with a default value, will be updated in effect
   const [collapsed, setCollapsed] = React.useState(false)
+  
+  // Update collapsed state whenever pathname changes
+  React.useEffect(() => {
+    const isWizardRoute = pathname.includes('/wizard/')
+    setCollapsed(isWizardRoute)
+  }, [pathname])
 
   const navItems = [
     {
@@ -74,7 +81,7 @@ export function DashboardSidebar() {
           <Button
             variant="default"
             className="w-full gap-2 justify-center py-6 mb-6">
-            <PlusIcon className="h-4 w-4" />
+            <PlusIcon className="h-8 w-8" />
             <span>New App</span>
           </Button>
         )}
@@ -83,7 +90,7 @@ export function DashboardSidebar() {
             variant="default"
             size="icon"
             className="mx-auto mb-6 py-6 flex items-center justify-center">
-            <PlusIcon className="h-4 w-4" />
+            <PlusIcon className="h-8 w-8" />
           </Button>
         )}
 
@@ -101,7 +108,7 @@ export function DashboardSidebar() {
               )}
             >
               <item.icon className={cn(
-                "h-4 w-4",
+                "h-6 w-6",
                 !collapsed && "mr-2"
               )} />
               {!collapsed && <span>{item.label}</span>}
