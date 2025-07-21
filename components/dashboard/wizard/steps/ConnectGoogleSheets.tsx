@@ -1,7 +1,33 @@
-import { Button } from "@/components/ui/button"
-import { Sheet } from "lucide-react"
+"use client"
+
+import { Sheet, Check, AlertCircle } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ConnectGoogleSheetsButton } from "@/components/shared/ConnectGoogleSheetsButton"
+import { useGoogleSheets } from "@/context/GoogleSheetsContext"
+import { useSearchParams } from "next/navigation"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export function ConnectGoogleSheets() {
+  const { isConnected, refreshConnectionStatus } = useGoogleSheets()
+  const [message, setMessage] = useState<string | null>(null)
+  const [messageType, setMessageType] = useState<'success' | 'error' | null>(null)
+  const searchParams = useSearchParams()
+  
+  useEffect(() => {
+    // Check for googleSheets status in URL parameters
+    const status = searchParams.get('googleSheets')
+    const msg = searchParams.get('message')
+    
+    if (status === 'success') {
+      setMessageType('success')
+      setMessage(msg || 'Google Sheets connected successfully')
+      // Refresh connection status to update the UI
+      refreshConnectionStatus()
+    } else if (status === 'error') {
+      setMessageType('error')
+      setMessage(msg || 'Failed to connect Google Sheets')
+    }
+  }, [searchParams, refreshConnectionStatus])
   return (
     <div className="flex flex-col items-center">
       <div className="mb-6">
@@ -33,10 +59,33 @@ export function ConnectGoogleSheets() {
         </ul>
       </div>
       
-      <Button className="w-full max-w-md flex items-center justify-center">
-        <Sheet className="mr-2 h-5 w-5" />
-        Connect Google Sheets
-      </Button>
+      {messageType && message && (
+        <Alert 
+          className={`mb-6 max-w-md w-full ${messageType === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}
+        >
+          <div className="flex items-center">
+            {messageType === 'success' ? 
+              <Check className="h-4 w-4 mr-2" /> : 
+              <AlertCircle className="h-4 w-4 mr-2" />}
+            <AlertDescription>{message}</AlertDescription>
+          </div>
+        </Alert>
+      )}
+      
+      {isConnected ? (
+        <div className="flex flex-col items-center text-green-600">
+          <div className="flex items-center mb-2">
+            <Check className="h-5 w-5 mr-2" />
+            <span className="font-medium">Connected to Google Sheets</span>
+          </div>
+          <p className="text-sm text-gray-500">You can now proceed to the next step</p>
+        </div>
+      ) : (
+        <ConnectGoogleSheetsButton 
+          className="w-full max-w-md" 
+          onSuccess={() => refreshConnectionStatus()}
+        />
+      )}
     </div>
   )
 }

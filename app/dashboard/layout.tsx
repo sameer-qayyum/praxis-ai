@@ -10,6 +10,7 @@ import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { UserDropdown } from "@/components/dashboard/user-dropdown";
 import { FeedbackButton } from "@/components/dashboard/feedback-button";
+import { GoogleSheetsClientProvider } from "@/components/providers/GoogleSheetsClientProvider";
 
 export default async function DashboardLayout({
   children,
@@ -55,7 +56,9 @@ export default async function DashboardLayout({
         
         {/* Main content area */}
         <main className="flex-1 p-6 bg-white dark:bg-slate-900 m-4 rounded-lg shadow-sm overflow-y-auto">
-          {children}
+          <GoogleSheetsClientProvider>
+            {children}
+          </GoogleSheetsClientProvider>
         </main>
 
         {/* Footer */}
