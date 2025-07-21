@@ -3,7 +3,6 @@
 ## Schemas
 
 - **public**: Contains general application tables accessible through RLS policies
-- **secure**: Contains sensitive data like OAuth tokens with restricted access
 
 ## Data Model
 
@@ -26,7 +25,7 @@ Stores user profile information, automatically created when a user signs up.
 | created_at | TIMESTAMP WITH TIME ZONE | When the profile was created |
 | updated_at | TIMESTAMP WITH TIME ZONE | When the profile was last updated |
 
-#### `secure.oauth_credentials`
+#### `public.oauth_credentials`
 
 Securely stores OAuth tokens for third-party integrations like Google.
 
@@ -91,7 +90,7 @@ A trigger function that automatically creates a profile when a new user signs up
 - **Returns**: The new user record
 - **Action**: Creates a new record in public.profiles with the user's ID
 
-### `secure.store_oauth_token()`
+### `public.store_oauth_token()`
 
 Securely stores or updates OAuth credentials.
 

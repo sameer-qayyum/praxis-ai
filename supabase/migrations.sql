@@ -34,7 +34,7 @@ CREATE POLICY "Users can update own profile"
   USING (auth.uid() = id);
 
 -- Secure table for OAuth credentials
-CREATE TABLE secure.oauth_credentials (
+CREATE TABLE public.oauth_credentials (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   provider TEXT NOT NULL,
@@ -113,7 +113,7 @@ CREATE TRIGGER on_auth_user_created
 -- Secure functions for OAuth operations
 
 -- Store OAuth token securely
-CREATE OR REPLACE FUNCTION secure.store_oauth_token(
+CREATE OR REPLACE FUNCTION public.store_oauth_token(
   p_user_id UUID,
   p_provider TEXT,
   p_access_token TEXT,
@@ -155,9 +155,9 @@ DECLARE
   token_exists BOOLEAN;
 BEGIN
   SELECT EXISTS(
-    SELECT 1 FROM secure.oauth_credentials 
+    SELECT 1 FROM public.oauth_credentials 
     WHERE user_id = auth.uid() 
-    AND provider = 'google' 
+    AND provider = 'google_sheets' 
     AND (expires_at IS NULL OR expires_at > NOW())
   ) INTO token_exists;
   
