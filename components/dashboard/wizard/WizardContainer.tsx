@@ -1,13 +1,14 @@
 'use client'
 "use client"
 
-import {useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Check } from "lucide-react"
 import { WizardProgress } from "./WizardProgress"
 import { ConnectGoogleSheets } from "./steps/ConnectGoogleSheets"
 import { UploadForm } from "./steps/UploadForm"
 import { ReviewFields } from "./steps/ReviewFields"
+import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 
 interface WizardContainerProps {
   title: string
@@ -17,9 +18,25 @@ interface WizardContainerProps {
 
 export function WizardContainer({ title, description, templateId }: WizardContainerProps) {
   const [currentStep, setCurrentStep] = useState(1)
+  const [initialCheckComplete, setInitialCheckComplete] = useState(false)
+  const { isConnected, isLoading, checkConnectionStatus } = useGoogleSheets()
   
-  // Define our wizard steps
-  const steps = [
+  // Check Google token validity on mount and skip to step 2 if valid
+  useEffect(() => {
+    const checkGoogleConnection = async () => {
+      const hasValidToken = await checkConnectionStatus()
+      if (hasValidToken) {
+        // If we have a valid token, skip straight to step 2
+        setCurrentStep(2)
+      }
+      setInitialCheckComplete(true)
+    }
+    
+    checkGoogleConnection()
+  }, [checkConnectionStatus])
+  
+  // Define our wizard steps based on whether we have a valid token
+  const allSteps = [
     {
       number: 1,
       id: "connect-google-sheets",
@@ -28,20 +45,23 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       status: currentStep === 1 ? "current" : currentStep > 1 ? "complete" : "upcoming"
     },
     {
-      number: 2,
+      number: isConnected ? 1 : 2, // Adjust number based on Google Sheets connection
       id: "upload-form",
       title: "Upload Form",
       description: "Upload your PDF, Word, or Excel form",
       status: currentStep === 2 ? "current" : currentStep > 2 ? "complete" : "upcoming"
     },
     {
-      number: 3,
+      number: isConnected ? 2 : 3, // Adjust number based on Google Sheets connection
       id: "review-fields",
       title: "Review Fields",
       description: "Customize the extracted form fields",
       status: currentStep === 3 ? "current" : currentStep > 3 ? "complete" : "upcoming"
     }
   ] as const
+  
+  // Filter steps if connected to Google
+  const steps = isConnected ? allSteps.filter(step => step.id !== "connect-google-sheets") : allSteps
   
   // Calculate progress percentage
   const totalSteps = steps.length
@@ -54,25 +74,52 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   }
   
   const goToPreviousStep = () => {
-    if (currentStep > 1) {
+    // When connected to Google, the minimum step is 2
+    const minStep = isConnected ? 2 : 1
+    if (currentStep > minStep) {
       setCurrentStep(currentStep - 1)
     }
   }
   
   // Render the current step component
   const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return <ConnectGoogleSheets />
-      case 2:
-        return <UploadForm />
-      case 3:
-        return <ReviewFields />
-      default:
-        return <div>Step not found</div>
+    // Handle case when Google is connected (step 1 is skipped)
+    if (isConnected) {
+      switch (currentStep) {
+        case 2:
+          return <UploadForm />
+        case 3:
+          return <ReviewFields />
+        default:
+          return <div>Step not found</div>
+      }
+    } else {
+      // Regular flow when Google is not connected yet
+      switch (currentStep) {
+        case 1:
+          return <ConnectGoogleSheets />
+        case 2:
+          return <UploadForm />
+        case 3:
+          return <ReviewFields />
+        default:
+          return <div>Step not found</div>
+      }
     }
   }
   
+  // Show loading state while checking token validity
+  if (!initialCheckComplete || isLoading) {
+    return (
+      <div className="w-full max-w-5xl mx-auto flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
+          <p className="mt-2 text-gray-600">Checking Google Sheets connection...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full max-w-5xl mx-auto">
       <div className="mb-8">
@@ -96,7 +143,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         <Button 
           variant="outline" 
           onClick={goToPreviousStep}
-          disabled={currentStep === 1}
+          disabled={isConnected ? currentStep === 2 : currentStep === 1}
           className="flex items-center"
         >
           <ChevronLeft className="h-4 w-4 mr-2" />

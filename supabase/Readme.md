@@ -169,3 +169,25 @@ Increments the app count for a template when a new app is created from it.
 ## Secure Data Handling
 
 OAuth tokens are stored in a separate `secure` schema and are never directly accessible from client applications. All access is mediated through secure functions that run with elevated privileges.
+
+## Edge Functions
+
+### `refresh-google-token`
+
+Automatically refreshes expired Google OAuth tokens.
+
+- **Endpoint**: `https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/refresh-google-token`
+- **Method**: POST
+- **Authentication**: Requires a valid Supabase JWT token
+- **Request Body**:
+  - `refreshToken`: STRING - The refresh token to use
+  - `userId`: UUID - The user's ID
+- **Response**:
+  - Success (200): `{ success: true, access_token: string, expires_at: string }`
+  - Error (400-500): `{ error: string, message?: string }`
+- **Description**: Securely handles the token refresh process with Google's OAuth API using environment variables for client credentials. Updates the database with the new access token and returns the refreshed token data. Includes CORS support for requests from allowed origins.
+- **Environment Variables Required**:
+  - `GOOGLE_CLIENT_ID`: Google OAuth client ID
+  - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret
+  - `SUPABASE_URL`: Supabase project URL
+  - `SUPABASE_SERVICE_ROLE_KEY`: Service role key for database access
