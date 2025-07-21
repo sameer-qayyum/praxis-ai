@@ -65,7 +65,12 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   
   // Calculate progress percentage
   const totalSteps = steps.length
-  const progressPercentage = Math.round((currentStep / totalSteps) * 100)
+  
+  // Calculate the effective step number for progress display when Google is connected
+  // If Google is connected and we're on step 2, we're actually on step 1 of 2 steps
+  // If Google is connected and we're on step 3, we're actually on step 2 of 2 steps
+  const effectiveStepNumber = isConnected ? currentStep - 1 : currentStep
+  const progressPercentage = Math.round((effectiveStepNumber / totalSteps) * 100)
   
   const goToNextStep = () => {
     if (currentStep < totalSteps) {
@@ -150,7 +155,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           Previous
         </Button>
         
-        {currentStep === totalSteps ? (
+        {/* Show finish button only on the last step (Review Fields), not on intermediate steps */}
+        {(isConnected && currentStep === 3) || (!isConnected && currentStep === 3) ? (
           <Button 
             onClick={() => console.log('Finished! App created successfully')}
             className="flex items-center bg-green-600 hover:bg-green-700"
