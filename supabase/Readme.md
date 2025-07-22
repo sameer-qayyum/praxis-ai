@@ -190,4 +190,40 @@ Automatically refreshes expired Google OAuth tokens.
   - `GOOGLE_CLIENT_ID`: Google OAuth client ID
   - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret
   - `SUPABASE_URL`: Supabase project URL
+  - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
+
+### `list-google-sheets`
+
+Retrieves a list of Google Sheets accessible by the user.
+
+- **Endpoint**: `https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/list-google-sheets`
+- **Method**: POST
+- **Authentication**: Requires a valid Supabase JWT token
+- **Request Body**:
+  - `userId`: UUID - The user's ID
+- **Response**:
+  - Success (200): `{ success: true, sheets: Array<{ id: string, name: string, lastModified: string, url: string }> }`
+  - Error (400-500): `{ error: string, message?: string, expired?: boolean }`
+- **Description**: Uses the user's Google OAuth credentials to fetch all Google Sheets documents available to them. Handles token expiration checks and returns a formatted list of sheets. Includes CORS support for requests from allowed origins.
+- **Environment Variables Required**:
+  - `SUPABASE_URL`: Supabase project URL
+  - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
+
+### `create-google-sheet`
+
+Creates a new Google Sheet for the user.
+
+- **Endpoint**: `https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/create-google-sheet`
+- **Method**: POST
+- **Authentication**: Requires a valid Supabase JWT token
+- **Request Body**:
+  - `userId`: UUID - The user's ID
+  - `sheetName`: STRING - Name for the new Google Sheet
+- **Response**:
+  - Success (200): `{ success: true, sheet: { id: string, name: string, lastModified: string, url: string } }`
+  - Error (400-500): `{ error: string, message?: string, expired?: boolean }`
+- **Description**: Creates a new Google Sheet with the specified name using the user's Google OAuth credentials. Returns the details of the newly created sheet including its ID and URL. Handles token expiration checks and includes CORS support for requests from allowed origins.
+- **Environment Variables Required**:
+  - `SUPABASE_URL`: Supabase project URL
+  - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
   - `SUPABASE_SERVICE_ROLE_KEY`: Service role key for database access

@@ -47,7 +47,8 @@ export function ConnectGoogleSheetsButton({
       // Define the scopes we need
       const scopes = [
         'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.file'
+        'https://www.googleapis.com/auth/drive.file',     // Keep this for file creation
+        'https://www.googleapis.com/auth/drive.readonly'  // Add this for listing all files
       ].join(' ')
       
       // Build the authorization URL

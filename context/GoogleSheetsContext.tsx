@@ -3,11 +3,54 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react"
 import { createClient } from "@/lib/supabase/client"
 
+interface GoogleSheet {
+  id: string
+  name: string
+  lastModified: string
+  url: string
+}
+
+interface SheetPagination {
+  hasMore: boolean
+  nextPageToken: string | null
+  totalFound: number
+  pageSize: number
+}
+
+interface SheetsListResponse {
+  success: boolean
+  sheets: GoogleSheet[]
+  pagination: SheetPagination
+}
+
+interface SheetsListParams {
+  pageSize?: number
+  pageToken?: string
+  sortBy?: 'name' | 'lastModified'
+  sortOrder?: 'asc' | 'desc'
+  query?: string
+}
+
 interface GoogleSheetsContextType {
   isConnected: boolean
   isLoading: boolean
+  sheets: GoogleSheet[]
+  loadingSheets: boolean
+  selectedSheet: GoogleSheet | null
+  pagination: SheetPagination | null
+  searchQuery: string
+  sortBy: 'name' | 'lastModified'
+  sortOrder: 'asc' | 'desc'
+  setSearchQuery: (query: string) => void
+  setSortBy: (field: 'name' | 'lastModified') => void
+  setSortOrder: (order: 'asc' | 'desc') => void
+  setSelectedSheet: (sheet: GoogleSheet | null) => void
   checkConnectionStatus: () => Promise<boolean>
   refreshConnectionStatus: () => Promise<boolean>
+  listSheets: (params?: SheetsListParams) => Promise<GoogleSheet[]>
+  loadMoreSheets: () => Promise<GoogleSheet[]>
+  refreshSheets: () => Promise<GoogleSheet[]>
+  createSheet: (name: string) => Promise<GoogleSheet | null>
   lastRefreshAttempt?: Date
 }
 
@@ -29,6 +72,13 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
   const [isConnected, setIsConnected] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [lastRefreshAttempt, setLastRefreshAttempt] = useState<Date | undefined>()
+  const [sheets, setSheets] = useState<GoogleSheet[]>([])
+  const [loadingSheets, setLoadingSheets] = useState(false)
+  const [selectedSheet, setSelectedSheet] = useState<GoogleSheet | null>(null)
+  const [pagination, setPagination] = useState<SheetPagination | null>(null)
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [sortBy, setSortBy] = useState<'name' | 'lastModified'>('lastModified')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const supabase = createClient()
 
   const checkConnectionStatus = async (): Promise<boolean> => {
@@ -59,7 +109,8 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           .single()
         
         if (!credentials?.refresh_token) {
-          console.error("Cannot refresh token: No refresh token found")
+          // Use console.debug instead of console.error to make it less intrusive
+          console.debug("No refresh token found - user needs to reconnect Google Sheets")
           setIsConnected(false)
           return false
         }
@@ -134,22 +185,247 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     setLastRefreshAttempt(new Date())
     return await checkConnectionStatus()
   }
+  
+  const listSheets = async (params?: SheetsListParams): Promise<GoogleSheet[]> => {
+    try {
+      setLoadingSheets(true)
+      
+      // Ensure we have a valid connection before proceeding
+      const isValid = await checkConnectionStatus()
+      if (!isValid) {
+        console.warn("No valid Google connection - attempting to reconnect")
+        // Try a final token refresh before failing
+        await refreshConnectionStatus()
+        if (!isConnected) {
+          // Return empty sheets instead of throwing error
+          console.debug("Google Sheets integration not connected - returning empty list")
+          return []
+        }
+      }
+      
+      // Get the current user's ID
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.user?.id) {
+        throw new Error("No authenticated user")
+      }
+      
+      // Use provided params or fallback to state values
+      const requestParams = {
+        userId: session.user.id,
+        pageSize: params?.pageSize || 20,
+        pageToken: params?.pageToken || undefined,
+        sortBy: params?.sortBy || sortBy,
+        sortOrder: params?.sortOrder || sortOrder,
+        query: params?.query !== undefined ? params.query : searchQuery
+      }
+      
+      console.log("Calling list-google-sheets with params:", { 
+        ...requestParams,
+        userId: "[REDACTED]" // Don't log the actual user ID
+      });
+      
+      // Call our Edge Function to list sheets with the parameters
+      const response = await fetch("https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/list-google-sheets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(requestParams)
+      })
+      
+      console.log("Edge function response status:", response.status, response.statusText);
+      
+      // Handle the response
+      if (!response.ok) {
+        // Check if token is expired (this is a backup check)
+        if (response.status === 401) {
+          try {
+            const errorData = await response.json()
+            if (errorData?.expired) {
+              // Token expired - try refreshing and calling again
+              const refreshed = await refreshConnectionStatus()
+              if (refreshed) {
+                return await listSheets(params) // Retry after refresh
+              }
+            }
+          } catch (parseError) {
+            console.error("Error parsing authentication error:", parseError);
+          }
+        }
+        
+        // Try to get more detailed error message from response
+        try {
+          const errorBody = await response.text();
+          throw new Error(`Failed to list sheets (${response.status}): ${response.statusText || errorBody || 'Unknown error'}`)
+        } catch (textError) {
+          throw new Error(`Failed to list sheets (${response.status}): ${response.statusText || 'Unknown error'}`)
+        }
+      }
+      
+      const result = await response.json() as SheetsListResponse
+      const fetchedSheets = result.sheets || []
+      
+      // If this is a fresh load (no pageToken), replace the sheets
+      // Otherwise for pagination, append to existing sheets
+      if (!params?.pageToken) {
+        setSheets(fetchedSheets)
+      } else {
+        setSheets(prevSheets => [...prevSheets, ...fetchedSheets])
+      }
+      
+      // Update pagination state
+      setPagination(result.pagination || null)
+      
+      return fetchedSheets
+    } catch (error) {
+      console.error("Error listing Google Sheets:", error)
+      return []
+    } finally {
+      setLoadingSheets(false)
+    }
+  }
+  
+  const loadMoreSheets = async (): Promise<GoogleSheet[]> => {
+    // Only proceed if we have pagination info and there are more sheets to load
+    if (!pagination?.hasMore || !pagination.nextPageToken) {
+      return []
+    }
+    
+    return await listSheets({
+      pageToken: pagination.nextPageToken,
+      pageSize: pagination.pageSize,
+      sortBy,
+      sortOrder,
+      query: searchQuery
+    })
+  }
+  
+  const refreshSheets = async (): Promise<GoogleSheet[]> => {
+    // Clear existing sheets and reload from beginning
+    setSheets([])
+    setPagination(null)
+    return await listSheets({
+      pageSize: 20, // Default page size
+      sortBy,
+      sortOrder,
+      query: searchQuery
+    })
+  }
+  
+  const createSheet = async (name: string): Promise<GoogleSheet | null> => {
+    if (!name.trim()) return null
+    
+    try {
+      setLoadingSheets(true)
+      
+      // Ensure we have a valid connection before proceeding
+      const isValid = await checkConnectionStatus()
+      if (!isValid) {
+        throw new Error("No valid Google connection")
+      }
+      
+      // Get the current user's ID
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.user?.id) {
+        throw new Error("No authenticated user")
+      }
+      
+      // Call our Edge Function to create a new sheet
+      const response = await fetch("https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/create-google-sheet", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          userId: session.user.id,
+          sheetName: name
+        })
+      })
+      
+      // Handle the response
+      if (!response.ok) {
+        // Check if token is expired (this is a backup check)
+        if (response.status === 401) {
+          const errorData = await response.json()
+          if (errorData?.expired) {
+            // Token expired - try refreshing and calling again
+            const refreshed = await refreshConnectionStatus()
+            if (refreshed) {
+              return await createSheet(name) // Retry after refresh
+            }
+          }
+        }
+        
+        throw new Error(`Failed to create sheet: ${response.statusText}`)
+      }
+      
+      const result = await response.json()
+      const newSheet = result.sheet
+      
+      if (!newSheet) {
+        throw new Error("No sheet data returned from API")
+      }
+      
+      // Update state and return
+      setSheets(prevSheets => [newSheet, ...prevSheets])
+      return newSheet
+    } catch (error) {
+      console.error("Error creating Google Sheet:", error)
+      return null
+    } finally {
+      setLoadingSheets(false)
+    }
+  }
 
   // Check connection status on mount
   useEffect(() => {
     checkConnectionStatus()
   }, [])
 
-  const value = {
-    isConnected,
-    isLoading,
-    lastRefreshAttempt,
-    checkConnectionStatus,
-    refreshConnectionStatus
-  }
+  // Load sheets when connected
+  useEffect(() => {
+    if (isConnected && !loadingSheets && sheets.length === 0) {
+      listSheets()
+    }
+  }, [isConnected])
+  
+  // Effect for refreshing sheets when search or sort options change
+  useEffect(() => {
+    // Skip on initial render
+    if (isConnected && !isLoading) {
+      refreshSheets()
+    }
+  }, [searchQuery, sortBy, sortOrder])
 
   return (
-    <GoogleSheetsContext.Provider value={value}>
+    <GoogleSheetsContext.Provider
+      value={{
+        isConnected,
+        isLoading,
+        sheets,
+        loadingSheets,
+        selectedSheet,
+        pagination,
+        searchQuery,
+        sortBy,
+        sortOrder,
+        setSearchQuery,
+        setSortBy,
+        setSortOrder,
+        setSelectedSheet,
+        checkConnectionStatus,
+        refreshConnectionStatus,
+        listSheets,
+        loadMoreSheets,
+        refreshSheets,
+        createSheet,
+        lastRefreshAttempt,
+      }}
+    >
       {children}
     </GoogleSheetsContext.Provider>
   )
