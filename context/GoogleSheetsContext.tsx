@@ -88,7 +88,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       
       // If token is invalid but we have no error, try to refresh it
       if (!isValid && !error) {
-        console.log("Google token expired, attempting to refresh...")
         setLastRefreshAttempt(new Date())
         
         // Get the current user's ID and refresh token
@@ -117,10 +116,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         
         try {
           // Call our Edge Function to refresh the token
-          console.log("Sending token refresh request with:", {
-            refreshToken: credentials.refresh_token?.substring(0, 5) + "...", // Log only first few chars for security
-            userId: session.user.id
-          });
           
           const response = await fetch("https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/refresh-google-token", {
             method: "POST",
@@ -138,7 +133,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           let result;
           try {
             const text = await response.text();
-            console.log("Edge function response:", text.substring(0, 100) + (text.length > 100 ? "..." : ""));
+           
             
             try {
               result = JSON.parse(text);
@@ -149,7 +144,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
             }
             
             if (response.ok && result?.success) {
-              console.log("Successfully refreshed Google token");
               isValid = true;
             } else {
               console.error("Failed to refresh Google token:", 
@@ -235,7 +229,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         body: JSON.stringify(requestParams)
       })
       
-      console.log("Edge function response status:", response.status, response.statusText);
       
       // Handle the response
       if (!response.ok) {

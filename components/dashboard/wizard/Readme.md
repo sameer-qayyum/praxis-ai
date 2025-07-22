@@ -1,0 +1,127 @@
+# Praxis AI Wizard Component
+
+This document provides a comprehensive guide to the wizard component used in the Praxis AI dashboard.
+
+## Overview
+
+The wizard provides a step-by-step interface for users to create applications by:
+1. Connecting to Google Sheets (optional if already connected)
+2. Uploading or selecting a form
+3. Reviewing extracted fields
+
+## Component Structure
+
+```
+WizardContainer
+├── WizardProgress (displays progress bar and step indicators)
+└── Step Content (conditional rendering based on currentStep)
+    ├── ConnectGoogleSheets
+    │   └── ConnectGoogleSheetsButton
+    ├── UploadForm
+    │   └── Google Sheets selection/creation UI
+    └── ReviewFields
+```
+
+## Key Types
+
+### WizardContainerProps
+
+```typescript
+interface WizardContainerProps {
+  title: string        // Title displayed at the top of the wizard
+  description: string  // Description text below the title
+  templateId: string   // ID of the template being used
+}
+```
+
+### Wizard Step
+
+```typescript
+type Step = {
+  number: number               // Step number in sequence
+  id: string                   // Unique identifier for the step
+  title: string                // Display title
+  description: string          // Short description
+  status: "current" | "complete" | "upcoming"  // Visual status for progress indicator
+}
+```
+
+## State Management
+
+### Local State
+
+- `currentStep: number` - Tracks the active step (1-3)
+- `initialCheckComplete: boolean` - Indicates if the Google connection check is complete
+
+### Context Usage
+
+- `GoogleSheetsContext` - Manages Google Sheets integration state:
+  - `isConnected` - Whether user has a valid Google connection
+  - `isLoading` - Loading state during connection checks
+  - `checkConnectionStatus()` - Validates and refreshes Google tokens
+  - `sheets`, `loadingSheets` - For the UploadForm component
+  - `createSheet()`, `listSheets()` - For sheets operations
+
+## Wizard Flow
+
+1. **Initialization**:
+   - Checks if user has a valid Google connection
+   - If connected, skips step 1 and starts at step 2
+   - Shows loading indicator during this check
+
+2. **Step Rendering**:
+   - Dynamic step content based on `currentStep` value
+   - Different flows for connected vs non-connected users
+
+3. **Navigation**:
+   - "Previous" button - Decrements `currentStep`
+   - "Next" button - Increments `currentStep`
+   - "Finish" button - Only shown on final step
+
+4. **Progress Calculation**:
+   - Adjusts progress based on total visible steps
+   - For connected users: 2 total steps (Upload and Review)
+   - For non-connected users: 3 total steps (Connect, Upload, Review)
+
+## Step Components
+
+### ConnectGoogleSheets
+
+Manages Google OAuth connection process:
+- Displays connection status
+- Provides button to initiate OAuth flow
+- Shows success/error messages from URL params after OAuth redirect
+
+### UploadForm
+
+Allows users to:
+- List existing Google Sheets
+- Create new Google Sheets
+- Select a sheet for use
+- Search, sort, and filter sheets list
+- Handle pagination for large lists
+
+### ReviewFields
+
+Allows users to:
+- View extracted form fields
+- Customize field properties
+- Finalize form configuration
+
+## Key Integrations
+
+1. **Google Sheets API** (via Supabase Edge Functions)
+   - OAuth authentication
+   - Sheet listing and creation
+   - Token refresh mechanism
+
+2. **Styling**
+   - Tailwind CSS for responsive design
+   - Shadcn UI components for consistent UI
+
+## Best Practices
+
+- **Conditional Rendering**: Different UI based on connection state
+- **Loading States**: Clear indicators during async operations
+- **Error Handling**: Graceful error display and recovery
+- **Progress Tracking**: Visual feedback on wizard position
