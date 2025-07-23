@@ -1,4 +1,3 @@
-'use client'
 "use client"
 
 import { useState, useEffect } from "react"
@@ -19,7 +18,8 @@ interface WizardContainerProps {
 export function WizardContainer({ title, description, templateId }: WizardContainerProps) {
   const [currentStep, setCurrentStep] = useState(1)
   const [initialCheckComplete, setInitialCheckComplete] = useState(false)
-  const { isConnected, isLoading, checkConnectionStatus } = useGoogleSheets()
+  const [selectedFieldsCount, setSelectedFieldsCount] = useState(0)
+  const { isConnected, isLoading, checkConnectionStatus, selectedSheet } = useGoogleSheets()
   
   // Check Google token validity on mount and skip to step 2 if valid
   useEffect(() => {
@@ -66,6 +66,14 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   // Calculate progress percentage
   const totalSteps = steps.length
   
+  // Debug rendering
+  console.log('WizardContainer rendering', { 
+    currentStep, 
+    totalSteps, 
+    isConnected, 
+    selectedSheet: selectedSheet ? { id: selectedSheet.id, name: selectedSheet.name } : 'none' 
+  })
+  
   // Calculate the effective step number for progress display when Google is connected
   // If Google is connected and we're on step 2, we're actually on step 1 of 2 steps
   // If Google is connected and we're on step 3, we're actually on step 2 of 2 steps
@@ -73,7 +81,21 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const progressPercentage = Math.round((effectiveStepNumber / totalSteps) * 100)
   
   const goToNextStep = () => {
+    console.log('goToNextStep called', { currentStep, totalSteps, selectedSheet })
+    
+    // When connected to Google, we need special handling for steps
+    if (isConnected) {
+      // When on step 2 (Upload Form), we want to go to step 3 (Review Fields)
+      if (currentStep === 2) {
+        console.log('Connected flow: Advancing to Review Fields (step 3)')
+        setCurrentStep(3)
+        return
+      }
+    }
+    
+    // Standard next step logic
     if (currentStep < totalSteps) {
+      console.log('Advancing to step', currentStep + 1)
       setCurrentStep(currentStep + 1)
     }
   }
@@ -160,6 +182,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           <Button 
             onClick={() => console.log('Finished! App created successfully')}
             className="flex items-center bg-green-600 hover:bg-green-700"
+            // Finish button is disabled if selectedSheet isn't loaded or if fields count is 0
+            disabled={!selectedSheet?.id || (selectedFieldsCount === 0)}
           >
             Finish
             <Check className="h-4 w-4 ml-2" />
@@ -168,6 +192,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           <Button 
             onClick={goToNextStep}
             className="flex items-center"
+            // Disable Next button if we're on the UploadForm step and no sheet is selected
+            disabled={currentStep === 2 && !selectedSheet?.id}
           >
             Next
             <ChevronRight className="h-4 w-4 ml-2" />

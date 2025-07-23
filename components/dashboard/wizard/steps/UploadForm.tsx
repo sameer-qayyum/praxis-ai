@@ -237,7 +237,10 @@ export function UploadForm() {
                   <div
                     key={sheet.id}
                     className={`flex items-center p-3 rounded-lg cursor-pointer border transition-colors ${selectedSheet?.id === sheet.id ? 'bg-primary/10 border-primary/30' : 'hover:bg-gray-100 border-transparent'}`}
-                    onClick={() => setSelectedSheet(sheet)}
+                    onClick={() => {
+                      console.log('Sheet selected:', sheet);
+                      setSelectedSheet(sheet);
+                    }}
                   >
                     <div className="flex-shrink-0 mr-3">
                       <FileSpreadsheet className="h-8 w-8 text-green-600" />
@@ -359,11 +362,6 @@ export function UploadForm() {
           </div>
         </TabsContent>
       </Tabs>
-      
-      <div className="mt-8 flex justify-end space-x-4">
-        <Button variant="outline">Back</Button>
-        <Button disabled={!selectedSheet && !selectedFile}>Continue</Button>
-      </div>
       
       <Dialog open={isDialogOpen && selectedFile !== null && !selectedSheet} onOpenChange={setIsDialogOpen}>
         <DialogContent>

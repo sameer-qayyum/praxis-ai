@@ -31,27 +31,41 @@ interface SheetsListParams {
   query?: string
 }
 
+// Type for column information
+interface SheetColumn {
+  name: string;
+  type: string;
+  description: string;
+  sampleData: string[];
+}
+
+interface SheetColumnsResponse {
+  columns: SheetColumn[];
+  isEmpty: boolean;
+}
+
 interface GoogleSheetsContextType {
-  isConnected: boolean
-  isLoading: boolean
-  sheets: GoogleSheet[]
-  loadingSheets: boolean
-  selectedSheet: GoogleSheet | null
-  pagination: SheetPagination | null
-  searchQuery: string
-  sortBy: 'name' | 'lastModified'
-  sortOrder: 'asc' | 'desc'
-  setSearchQuery: (query: string) => void
-  setSortBy: (field: 'name' | 'lastModified') => void
-  setSortOrder: (order: 'asc' | 'desc') => void
-  setSelectedSheet: (sheet: GoogleSheet | null) => void
-  checkConnectionStatus: () => Promise<boolean>
-  refreshConnectionStatus: () => Promise<boolean>
-  listSheets: (params?: SheetsListParams) => Promise<GoogleSheet[]>
-  loadMoreSheets: () => Promise<GoogleSheet[]>
-  refreshSheets: () => Promise<GoogleSheet[]>
-  createSheet: (name: string) => Promise<GoogleSheet | null>
-  lastRefreshAttempt?: Date
+  isConnected: boolean;
+  isLoading: boolean;
+  sheets: GoogleSheet[];
+  loadingSheets: boolean;
+  selectedSheet: GoogleSheet | null;
+  pagination: SheetPagination | null;
+  searchQuery: string;
+  sortBy: 'name' | 'lastModified';
+  sortOrder: 'asc' | 'desc';
+  setSearchQuery: (query: string) => void;
+  setSortBy: (field: 'name' | 'lastModified') => void;
+  setSortOrder: (order: 'asc' | 'desc') => void;
+  setSelectedSheet: (sheet: GoogleSheet | null) => void;
+  checkConnectionStatus: () => Promise<boolean>;
+  refreshConnectionStatus: () => Promise<boolean>;
+  listSheets: (params?: SheetsListParams) => Promise<GoogleSheet[]>;
+  loadMoreSheets: () => Promise<GoogleSheet[]>;
+  refreshSheets: () => Promise<GoogleSheet[]>;
+  createSheet: (name: string) => Promise<GoogleSheet | null>;
+  getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
+  lastRefreshAttempt?: Date;
 }
 
 const GoogleSheetsContext = createContext<GoogleSheetsContextType | undefined>(undefined)
@@ -407,6 +421,39 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       refreshSheets()
     }
   }, [searchQuery, sortBy, sortOrder])
+  
+  // Get columns and data from a sheet
+  const getSheetColumns = async (sheetId: string): Promise<SheetColumnsResponse> => {
+    try {
+      const session = await supabase.auth.getSession()
+      if (!session?.data?.session) {
+        throw new Error("User is not authenticated")
+      }
+      
+      const response = await fetch(`/api/sheets/${sheetId}/columns`)
+      
+      if (!response.ok) {
+        // Check if token is expired
+        if (response.status === 401) {
+          const errorData = await response.json()
+          if (errorData?.expired) {
+            // Token expired - try refreshing and calling again
+            const refreshed = await refreshConnectionStatus()
+            if (refreshed) {
+              return await getSheetColumns(sheetId) // Retry after refresh
+            }
+          }
+        }
+        
+        throw new Error(`Failed to fetch columns: ${response.statusText}`)
+      }
+      
+      return await response.json()
+    } catch (error) {
+      console.error("Error fetching sheet columns:", error)
+      throw error
+    }
+  }
 
   return (
     <GoogleSheetsContext.Provider
@@ -430,6 +477,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         loadMoreSheets,
         refreshSheets,
         createSheet,
+        getSheetColumns,
         lastRefreshAttempt,
       }}
     >
