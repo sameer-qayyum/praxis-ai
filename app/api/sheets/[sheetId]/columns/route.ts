@@ -12,27 +12,78 @@ interface ColumnDefinition {
 
 // Helper function to infer column type from sample data
 function inferColumnType(samples: string[]): string {
-  if (!samples || samples.length === 0) return 'Text';
+  // Filter out empty/null values
+  const nonEmptySamples = samples.filter(s => s && s.trim() !== '');
+  if (nonEmptySamples.length === 0) return 'text';
 
-  // Check for email pattern in the first few non-empty samples
+  // Calculate the number of unique values for dropdown/checkbox inference
+  const uniqueValues = new Set(nonEmptySamples.map(s => s.trim()));
+  const uniqueCount = uniqueValues.size;
+  
+  // Boolean detection (yes/no, true/false, 0/1)
+  const boolPatterns = [
+    ['true', 'false'],
+    ['yes', 'no'],
+    ['y', 'n'],
+    ['0', '1'],
+    ['✓', '✗'],
+    ['on', 'off']
+  ];
+  
+  if (uniqueCount <= 2) {
+    const lowerSamples = nonEmptySamples.map(s => s.toLowerCase().trim());
+    for (const pattern of boolPatterns) {
+      if (lowerSamples.every(s => pattern.includes(s))) {
+        return 'boolean';
+      }
+    }
+  }
+  
+  // URL detection
+  const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,})/i;
+  if (nonEmptySamples.some(s => urlPattern.test(s.trim()))) {
+    return 'url';
+  }
+  
+  // Email detection
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (samples.some(s => s && emailRegex.test(s))) return 'Email';
+  if (nonEmptySamples.some(s => emailRegex.test(s.trim()))) {
+    return 'email';
+  }
 
-  // Check for phone pattern
-  const phoneRegex = /^[\d\+\-\(\)\s\.]+$/;
-  const potentialPhones = samples.filter(s => s && s.trim().length > 0);
-  if (potentialPhones.length > 0 && potentialPhones.every(s => phoneRegex.test(s))) return 'Phone';
+  // Phone detection
+  const phoneRegex = /^[\d\+\-\(\)\s\.]{6,20}$/;
+  if (nonEmptySamples.every(s => phoneRegex.test(s.trim()))) {
+    return 'tel';
+  }
 
-  // Check for dates
+  // Date detection
   const dateRegex = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}$/;
-  if (samples.some(s => s && dateRegex.test(s))) return 'Date';
+  if (nonEmptySamples.some(s => dateRegex.test(s.trim()))) {
+    return 'date';
+  }
 
-  // Check if all samples are numbers
+  // Number detection
   const numberRegex = /^-?\d+(\.\d+)?$/;
-  if (samples.some(s => s && numberRegex.test(s))) return 'Number';
-
+  if (nonEmptySamples.every(s => numberRegex.test(s.trim()))) {
+    return 'number';
+  }
+  
+  // Dropdown/Radio (single-select) detection
+  // If we have few unique values compared to the total samples
+  if (uniqueCount <= 5 && uniqueCount < nonEmptySamples.length * 0.6) {
+    return 'dropdown';
+  }
+  
+  // Checkbox group (multi-select) detection
+  // Look for delimiter patterns suggesting multiple values
+  const multiValuePattern = /[,;|]/;
+  if (nonEmptySamples.some(s => multiValuePattern.test(s)) && uniqueCount <= 10) {
+    return 'checkbox';
+  }
+  
   // Default to text
-  return 'Text';
+  return 'text';
 }
 
 export async function GET(
@@ -201,11 +252,15 @@ export async function GET(
       // Extract sample data for this column
       const sampleData = sampleRows.map((row: string[]) => row[index] || '').filter(Boolean);
       
+      // Infer the column type from sample data
+      const inferredType = inferColumnType(sampleData);
+      
+      // Return column definition with the inferred type
       return {
         name: header,
-        type: inferColumnType(sampleData),
+        type: inferredType,
         description: '', // Default empty description that user can fill in
-        sampleData: sampleData.slice(0, 3) // Limit to 3 samples
+        sampleData: sampleData // Keep all samples for the frontend
       };
     });
 

@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Loader2 } from "lucide-react"
+import { Plus, Info, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useEffect, useState } from "react"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
@@ -70,15 +70,55 @@ export function ReviewFields({ onFieldsChange }: ReviewFieldsProps) {
           toast.error("The selected sheet appears to be empty. Please add custom fields.");
         } else {
           // Transform API response to our Field format
-          const transformedFields = data.columns.map((col: any, index: number) => ({
-            id: `col-${index}`,
-            name: col.name,
-            type: col.type || 'Text',
-            description: col.description || '',
-            include: true,
-            sampleData: col.sampleData || [],
-            options: []
-          }));
+          const transformedFields = data.columns.map((col: any, index: number) => {
+            // Capitalize first letter of type to match our dropdown options
+            let fieldType = col.type || 'text';
+            fieldType = fieldType.charAt(0).toUpperCase() + fieldType.slice(1);
+            
+            // Handle special case mappings
+            const typeMapping: Record<string, string> = {
+              'Checkbox': 'Checkbox Group',
+              'Tel': 'Phone',
+              'Radio': 'Radio',
+              'Dropdown': 'Dropdown'
+            };
+            
+            const normalizedType = typeMapping[fieldType] || fieldType;
+            
+            // For dropdown/radio/checkbox types, extract options from sample data
+            let options: string[] = [];
+            if (typesRequiringOptions.includes(normalizedType)) {
+              try {
+                // Get unique values from sample data as options
+                const sampleData = col.sampleData || [];
+                // Ensure we're working with string[] by explicitly casting and filtering
+                const validStrings: string[] = [];
+                
+                for (const item of sampleData) {
+                  if (typeof item === 'string' && item.trim() !== '') {
+                    validStrings.push(item.trim());
+                  }
+                }
+                
+                // Remove duplicates
+                const uniqueValues = Array.from(new Set(validStrings));
+                options = uniqueValues.length > 0 ? uniqueValues : ['Option 1'];
+              } catch (error) {
+                console.error('Error processing options:', error);
+                options = ['Option 1'];
+              }
+            }
+            
+            return {
+              id: `col-${index}`,
+              name: col.name,
+              type: normalizedType,
+              description: col.description || '',
+              include: true,
+              sampleData: col.sampleData || [],
+              options: options
+            };
+          });
           
           setFields(transformedFields);
         }
@@ -240,7 +280,39 @@ export function ReviewFields({ onFieldsChange }: ReviewFieldsProps) {
   
   return (
     <div className="w-full max-w-4xl mx-auto">
-      <h2 className="text-2xl font-semibold mb-4">Review & Customize Fields</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-semibold">Review & Customize Fields</h2>
+        <Button onClick={addCustomField} variant="outline" size="sm" className="flex items-center">
+          <Plus className="h-4 w-4 mr-1" />
+          Add Custom Field
+        </Button>
+      </div>
+      
+      {fields.length > 0 ? (
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+          <div className="flex items-start">
+            <Info className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
+            <div>
+              <h3 className="font-medium text-blue-900 dark:text-blue-300">Field types have been automatically detected</h3>
+              <p className="text-blue-800 dark:text-blue-400 text-sm mt-1">
+                We've analyzed your sheet data to suggest appropriate field types. Please review and adjust them if needed to ensure your app is correctly configured.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-6">
+          <div className="flex items-start">
+            <Info className="h-5 w-5 text-amber-500 mt-0.5 mr-3 flex-shrink-0" />
+            <div>
+              <h3 className="font-medium text-amber-900 dark:text-amber-300">Define fields for your application</h3>
+              <p className="text-amber-800 dark:text-amber-400 text-sm mt-1">
+                It's important to correctly define the fields you want to use in your application. This ensures data is stored and retrieved correctly. Add fields using the button above.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       {fields.length === 0 ? (
         <div className="text-center py-10">
