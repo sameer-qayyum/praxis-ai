@@ -65,6 +65,7 @@ interface GoogleSheetsContextType {
   refreshSheets: () => Promise<GoogleSheet[]>;
   createSheet: (name: string) => Promise<GoogleSheet | null>;
   getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
+  saveSheetConnection: (name: string, description: string, columnsMetadata: any[]) => Promise<boolean>;
   lastRefreshAttempt?: Date;
 }
 
@@ -94,6 +95,22 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
   const [sortBy, setSortBy] = useState<'name' | 'lastModified'>('lastModified')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const supabase = createClient()
+
+  const getSheetConnection = async function getSheetConnection(sheetId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('google_sheets_connections')
+        .select('*')
+        .eq('sheet_id', sheetId)
+        .single();
+        
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error("Error fetching sheet connection:", err);
+      return null;
+    }
+  }
 
   const checkConnectionStatus = async (): Promise<boolean> => {
     try {
@@ -455,6 +472,100 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     }
   }
 
+  // Save sheet connection to google_sheets_connections table
+  const saveSheetConnection = async (
+    name: string,
+    description: string,
+    columnsMetadata: any[]
+  ): Promise<boolean> => {
+    console.log('🔍 saveSheetConnection called with:', { name, description, columnsMetadataLength: columnsMetadata.length });
+    console.log('🔍 Selected sheet:', selectedSheet);
+    
+    if (!selectedSheet?.id) {
+      console.error("❌ No sheet selected")
+      return false
+    }
+
+    try {
+      // Get current user
+      console.log('🔍 Getting user session...');
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user?.id) {
+        console.error("❌ No authenticated user");
+        throw new Error("No authenticated user")
+      }
+      console.log('🔍 User session found:', { userId: session.user.id });
+
+      // Check if connection already exists for this sheet and user
+      console.log('🔍 Checking for existing connection...');
+      const { data: existingConnection, error: checkError } = await supabase
+        .from('google_sheets_connections')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('sheet_id', selectedSheet.id)
+        .maybeSingle()
+
+      if (checkError) {
+        console.error("❌ Error checking existing connection:", checkError)
+        throw checkError
+      }
+      
+      console.log('🔍 Existing connection check result:', existingConnection ? 'Found existing' : 'No existing connection');
+
+      let result
+
+      if (existingConnection) {
+        // Update existing connection
+        console.log('🔍 Updating existing connection with id:', existingConnection.id);
+        const { data, error } = await supabase
+          .from('google_sheets_connections')
+          .update({
+            name,
+            sheet_name: selectedSheet.name,
+            description,
+            updated_at: new Date().toISOString(),
+            columns_metadata: columnsMetadata
+          })
+          .eq('id', existingConnection.id)
+          .select()
+
+        if (error) {
+          console.error('❌ Update error:', error);
+          throw error;
+        }
+        result = data;
+        console.log('✅ Updated successfully:', data);
+      } else {
+        // Insert new connection
+        console.log('🔍 Inserting new connection for sheet:', selectedSheet.id);
+        const { data, error } = await supabase
+          .from('google_sheets_connections')
+          .insert({
+            user_id: session.user.id,
+            name,
+            sheet_id: selectedSheet.id,
+            sheet_name: selectedSheet.name,
+            description,
+            columns_metadata: columnsMetadata
+          })
+          .select()
+
+        if (error) {
+          console.error('❌ Insert error:', error);
+          throw error;
+        }
+        result = data;
+        console.log('✅ Inserted successfully:', data);
+      }
+
+      console.log('✅ Sheet connection saved successfully!');
+      return true
+    } catch (error) {
+      console.error("❌ Error saving sheet connection:", error)
+      return false
+    }
+  }
+
   return (
     <GoogleSheetsContext.Provider
       value={{
@@ -478,6 +589,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         refreshSheets,
         createSheet,
         getSheetColumns,
+        saveSheetConnection,
         lastRefreshAttempt,
       }}
     >

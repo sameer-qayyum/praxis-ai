@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
   Search, Upload, Plus, FileSpreadsheet, UploadCloud, Table, X, 
-  Loader2, ArrowDownAZ, ArrowUpZA, Clock, SortAsc, SortDesc 
+  Loader2, ArrowDownAZ, Clock, SortAsc, SortDesc 
 } from "lucide-react"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"

@@ -40,9 +40,10 @@ const typesRequiringOptions = ["Dropdown", "Radio", "Checkbox Group"]
 
 interface ReviewFieldsProps {
   onFieldsChange?: (count: number) => void;
+  onFieldsUpdate?: (fields: Field[]) => void;
 }
 
-export function ReviewFields({ onFieldsChange }: ReviewFieldsProps) {
+export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsProps) {
   const [loading, setLoading] = useState(true);
   const [fields, setFields] = useState<Field[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -250,12 +251,11 @@ export function ReviewFields({ onFieldsChange }: ReviewFieldsProps) {
   
   // Update included fields count
   useEffect(() => {
-    const count = fields.filter(f => f.include).length;
-    setIncludedFieldCount(count);
-    if (onFieldsChange) {
-      onFieldsChange(count);
-    }
-  }, [fields, onFieldsChange]);
+    const count = fields.filter(field => field.include).length
+    setIncludedFieldCount(count)
+    onFieldsChange?.(count)
+    onFieldsUpdate?.(fields)
+  }, [fields, onFieldsChange, onFieldsUpdate]);
 
   // Render loading state
   if (loading) {
