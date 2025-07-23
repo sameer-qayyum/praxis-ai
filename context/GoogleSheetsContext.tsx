@@ -379,12 +379,26 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     checkConnectionStatus()
   }, [])
 
-  // Load sheets when connected
+  // Set up initial sheets loading when connection is established
   useEffect(() => {
-    if (isConnected && !loadingSheets && sheets.length === 0) {
+    if (isConnected && !isLoading) {
       listSheets()
     }
-  }, [isConnected])
+  }, [isConnected, isLoading])
+  
+  // Refresh sheets list when search query, sort options change
+  useEffect(() => {
+    if (isConnected && !isLoading) {
+      // Only trigger if we've already loaded sheets once
+      if (sheets.length > 0 || pagination !== null) {
+        listSheets({
+          query: searchQuery,
+          sortBy: sortBy,
+          sortOrder: sortOrder
+        })
+      }
+    }
+  }, [searchQuery, sortBy, sortOrder])
   
   // Effect for refreshing sheets when search or sort options change
   useEffect(() => {

@@ -227,6 +227,12 @@ export function UploadForm() {
           ) : sheets.length > 0 ? (
             <ScrollArea className="h-[400px] border rounded-md">
               <div className="p-4 space-y-3">
+                <div className="text-sm text-gray-500 pb-2 border-b mb-2">
+                  <p>
+                    Showing {sheets.length} sheets{pagination?.hasMore ? " (newest first)" : ""}
+                    {searchQuery && " matching '" + searchQuery + "'"}
+                  </p>
+                </div>
                 {sheets.map((sheet) => (
                   <div
                     key={sheet.id}
