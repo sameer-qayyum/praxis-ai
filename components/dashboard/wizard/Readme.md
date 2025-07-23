@@ -98,6 +98,54 @@ Allows users to:
 - List existing Google Sheets
 - Create new Google Sheets
 - Select a sheet for use
+
+### ReviewFields
+
+Enables users to:
+- View columns from the selected Google Sheet
+- Customize field properties (name, type, description)
+- Include/exclude fields for the final app
+- Add custom fields if needed
+
+## Data Saving Process
+
+### Functions and Data Flow
+
+1. **Key Functions**:
+   - `saveSheetConnection(name, description, columnsMetadata)` - Located in `GoogleSheetsContext.tsx`
+   - `handleFinish()` - Located in `WizardContainer.tsx`
+
+2. **Data Storage**:
+   - Target Table: `google_sheets_connections`
+   - Key Columns: 
+     - `user_id` (from authenticated session)
+     - `sheet_id` (from selected sheet)
+     - `name` (from sheet name)
+     - `columns_metadata` (JSONB column storing field configurations)
+
+### Finish Button Flow
+
+When the user clicks the Finish button:
+
+1. **Validation**:
+   - Checks if a sheet is selected (`selectedSheet?.id`)
+   - Verifies at least one field is included (`selectedFieldsCount > 0`)
+   - Disables button during submission (`isSubmitting` state)
+
+2. **Data Preparation**:
+   - Filters the fields array to include only fields with `include: true`
+   - Maps to the required format for storage (id, name, type, description, options)
+   - Creates metadata with sheet name and description
+
+3. **Database Operation**:
+   - Calls `saveSheetConnection()` with formatted data
+   - Function checks if connection already exists (for update vs. insert)
+   - Performs upsert operation in the `google_sheets_connections` table
+
+4. **User Feedback**:
+   - Shows success toast if operation completes successfully
+   - Shows error toast if any issues occur
+   - Resets submission state when complete
 - Search, sort, and filter sheets list
 - Handle pagination for large lists
 
