@@ -64,7 +64,8 @@ CREATE TABLE public.google_sheets_connections (
   description TEXT,
   last_synced TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  columns_metadata JSONB DEFAULT '[]'::jsonb
 );
 
 -- Create RLS policies for Google Sheets connections
