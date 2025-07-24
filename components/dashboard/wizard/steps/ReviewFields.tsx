@@ -203,7 +203,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
   const addCustomField = () => {
     const newFieldId = `custom-${customFieldCounter}`;
     
-    setFields(prev => [{
+    setFields(prev => [...prev, {
       id: newFieldId,
       name: `field_${customFieldCounter + 1}`,
       type: "Text",
@@ -211,7 +211,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
       include: true,
       sampleData: [],
       options: []
-    }, ...prev]);
+    }]);
     
     setCustomFieldCounter(prev => prev + 1);
   };
