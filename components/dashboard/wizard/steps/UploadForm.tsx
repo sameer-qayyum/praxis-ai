@@ -31,9 +31,11 @@ interface SheetOrderOption {
 
 interface UploadFormProps {
   onSheetColumnsChange?: (columnChanges: ColumnSyncResult) => void;
+  onColumnCheckStateChange?: (isChecking: boolean) => void;
 }
 
-export function UploadForm({ onSheetColumnsChange }: UploadFormProps = {}) {
+export function UploadForm({ onSheetColumnsChange, onColumnCheckStateChange }: UploadFormProps = {}) {
+  const [checkingColumns, setCheckingColumns] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>("existing-sheet")
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -249,44 +251,57 @@ export function UploadForm({ onSheetColumnsChange }: UploadFormProps = {}) {
                       toast.success('Selected sheet: ' + sheet.name);
                       setSelectedSheet(sheet);
                                             // Check for column changes in this sheet compared to saved metadata
-                       try {
-                         console.log(`🔎 Checking column changes for sheet: ${sheet.id}`);
-                         const columnChanges = await checkSheetColumnChanges(sheet.id);
-                         
-                         console.log(`📊 Column changes result:`, columnChanges);
-                         
-                         if (columnChanges) {
-                           console.log(`📊 Has changes: ${columnChanges.hasChanges}`);
-                           console.log(`📊 Changes array length: ${columnChanges.changes?.length || 0}`);
-                           
-                           // Force display toast even if hasChanges is false (for debugging)
-                           const addedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'added').length;
-                           const removedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'removed').length;
-                           const reorderedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'reordered').length;
-                           
-                           console.log(`📊 Added: ${addedColumns}, Removed: ${removedColumns}, Reordered: ${reorderedColumns}`);
-                           
-                           // Show toast regardless of hasChanges flag (for debugging)
-                           toast.info(
-                             'Sheet columns debug info', 
-                             {
-                               description: `Changes detected: ${columnChanges.hasChanges}. Found ${addedColumns} new, ${removedColumns} removed, and ${reorderedColumns} reordered columns.`,
-                               duration: 8000
-                             }
-                           );
-                           
-                           // Always pass column changes to parent, even if hasChanges is false
-                           if (onSheetColumnsChange) {
-                             console.log(`📤 Passing column changes to WizardContainer`);
-                             onSheetColumnsChange(columnChanges);
-                           }
-                         } else {
-                           console.log(`❌ No column changes result returned (null)`);
-                           toast.error('Failed to check column changes');
+                        try {
+                          console.log(`🔎 Checking column changes for sheet: ${sheet.id}`);
+                          // Signal that we're starting to check columns
+                          setCheckingColumns(true);
+                          if (onColumnCheckStateChange) {
+                            onColumnCheckStateChange(true);
+                          }
+                          
+                          const columnChanges = await checkSheetColumnChanges(sheet.id);
+                          
+                          console.log(`📊 Column changes result:`, columnChanges);
+                          
+                          if (columnChanges) {
+                            console.log(`📊 Has changes: ${columnChanges.hasChanges}`);
+                            console.log(`📊 Changes array length: ${columnChanges.changes?.length || 0}`);
+                            
+                            const addedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'added').length;
+                            const removedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'removed').length;
+                            const reorderedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'reordered').length;
+                            
+                            console.log(`📊 Added: ${addedColumns}, Removed: ${removedColumns}, Reordered: ${reorderedColumns}`);
+                            
+                            // Show toast with more user-friendly message
+                            if (columnChanges.hasChanges) {
+                              toast.info(
+                                'Sheet column changes detected', 
+                                {
+                                  description: `Found ${addedColumns} new, ${removedColumns} removed, and ${reorderedColumns} reordered columns.`,
+                                  duration: 6000
+                                }
+                              );
+                            }
+                            
+                            // Always pass column changes to parent, even if hasChanges is false
+                            if (onSheetColumnsChange) {
+                              console.log(`📤 Passing column changes to WizardContainer`);
+                              onSheetColumnsChange(columnChanges);
+                            }
+                          } else {
+                            console.log(`❌ No column changes result returned (null)`);
+                            toast.error('Failed to check column changes');
+                          }
+                       } catch (error) {
+                         console.error('Error checking column changes:', error);
+                       } finally {
+                         // Signal that we're done checking columns
+                         setCheckingColumns(false);
+                         if (onColumnCheckStateChange) {
+                           onColumnCheckStateChange(false);
                          }
-                      } catch (error) {
-                        console.error('Error checking column changes:', error);
-                      }
+                       }
                     }}
                   >
                     <div className="flex-shrink-0 mr-3">

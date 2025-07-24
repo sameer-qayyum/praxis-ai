@@ -23,6 +23,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const [selectedFieldsCount, setSelectedFieldsCount] = useState(0)
   const [fields, setFields] = useState<any[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCheckingColumns, setIsCheckingColumns] = useState(false)
   const [columnChanges, setColumnChanges] = useState<ColumnSyncResult | null>(null)
   const { isConnected, isLoading, checkConnectionStatus, selectedSheet, saveSheetConnection, writeSheetColumns } = useGoogleSheets()
   
@@ -192,7 +193,10 @@ export function WizardContainer({ title, description, templateId }: WizardContai
     if (isConnected) {
       switch (currentStep) {
         case 2:
-          return <UploadForm onSheetColumnsChange={setColumnChanges} />
+          return <UploadForm
+            onSheetColumnsChange={setColumnChanges}
+            onColumnCheckStateChange={setIsCheckingColumns}
+          />
         case 3:
           return <ReviewFields 
             onFieldsChange={setSelectedFieldsCount} 
@@ -208,7 +212,10 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         case 1:
           return <ConnectGoogleSheets />
         case 2:
-          return <UploadForm onSheetColumnsChange={setColumnChanges} />
+          return <UploadForm
+            onSheetColumnsChange={setColumnChanges}
+            onColumnCheckStateChange={setIsCheckingColumns}
+          />
         case 3:
           return <ReviewFields 
             onFieldsChange={setSelectedFieldsCount} 
@@ -279,7 +286,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
             onClick={goToNextStep}
             className="flex items-center"
             // Disable Next button if we're on the UploadForm step and no sheet is selected
-            disabled={currentStep === 2 && !selectedSheet?.id}
+            // Also disable if we're currently checking columns
+            disabled={(currentStep === 2 && !selectedSheet?.id) || isCheckingColumns}
           >
             Next
             <ChevronRight className="h-4 w-4 ml-2" />
