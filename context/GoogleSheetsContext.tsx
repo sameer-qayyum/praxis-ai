@@ -44,6 +44,22 @@ interface SheetColumnsResponse {
   isEmpty: boolean;
 }
 
+// Define interfaces for column change detection
+export interface ColumnChange {
+  type: 'added' | 'removed' | 'reordered' | 'unchanged';
+  name: string;
+  index?: number;
+  newIndex?: number;
+}
+
+export interface ColumnSyncResult {
+  hasChanges: boolean;
+  changes: ColumnChange[];
+  mergedColumns: any[];
+  savedColumns: any[];
+  currentColumns: SheetColumn[];
+}
+
 interface GoogleSheetsContextType {
   isConnected: boolean;
   isLoading: boolean;
@@ -68,6 +84,7 @@ interface GoogleSheetsContextType {
   saveSheetConnection: (name: string, description: string, columnsMetadata: any[]) => Promise<boolean>;
   writeSheetColumns: (sheetId: string, columns: any[]) => Promise<boolean>;
   getSheetConnection: (sheetId: string) => Promise<any | null>;
+  checkSheetColumnChanges: (sheetId: string) => Promise<ColumnSyncResult | null>;
   lastRefreshAttempt?: Date;
 }
 
@@ -621,7 +638,194 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       console.error("❌ Error writing columns to sheet:", error);
       return false
     }
-  }
+  };
+
+  // Check for changes between saved columns metadata and actual Google Sheet columns
+  const checkSheetColumnChanges = async (sheetId: string): Promise<ColumnSyncResult | null> => {
+    try {
+      console.log(`🔍 Starting column sync check for sheet: ${sheetId}`);
+      
+      // Get saved connection data if it exists
+      const savedConnection = await getSheetConnection(sheetId);
+      
+      // Get current columns from Google Sheet
+      const sheetData = await getSheetColumns(sheetId);
+      
+      // If sheet is empty, return null
+      if (sheetData.isEmpty) {
+        console.log('❌ Sheet is empty, no columns to check');
+        return null;
+      }
+      
+      // If we don't have saved metadata, all columns are "new"
+      if (!savedConnection || !savedConnection.columns_metadata || !Array.isArray(savedConnection.columns_metadata)) {
+        console.log('❌ No saved connection or columns metadata found for this sheet');
+        return {
+          hasChanges: false, // No real changes since we're starting fresh
+          changes: [],
+          mergedColumns: sheetData.columns.map((col: SheetColumn) => ({
+            id: `col-${Math.random().toString(36).substring(2, 11)}`,
+            name: col.name,
+            type: col.type,
+            description: '',
+            options: []
+          })),
+          savedColumns: [],
+          currentColumns: sheetData.columns
+        };
+      }
+      
+      const savedColumns = savedConnection.columns_metadata;
+      const currentColumns = sheetData.columns;
+      
+      console.log('📋 SAVED COLUMNS:', JSON.stringify(savedColumns, null, 2));
+      console.log('📋 CURRENT COLUMNS:', JSON.stringify(currentColumns, null, 2));
+      console.log(`📊 Comparing ${savedColumns.length} saved columns with ${currentColumns.length} current columns`);
+      
+      // Track all changes
+      const changes: ColumnChange[] = [];
+      
+      // Create maps for faster lookups with proper typing
+      type ColumnWithIndex = { name: string; index: number; id?: string; type?: string; description?: string; options?: any[]; [key: string]: any };
+      
+      const savedColumnMap = new Map<string, ColumnWithIndex>(
+        savedColumns.map((col: any, index: number) => [
+          col.name, 
+          { ...col, index }
+        ])
+      );
+      
+      const currentColumnMap = new Map<string, ColumnWithIndex>(
+        currentColumns.map((col: any, index: number) => [
+          col.name, 
+          { ...col, index }
+        ])
+      );
+      
+      console.log('🗺️ Saved column names:', [...savedColumnMap.keys()]);
+      console.log('🗺️ Current column names:', [...currentColumnMap.keys()]);
+      
+      // Check for removed columns (in saved but not in current)
+      savedColumns.forEach((col: any, index: number) => {
+        const exists = currentColumnMap.has(col.name);
+        console.log(`❓ Checking if column '${col.name}' exists in current sheet: ${exists ? '✅ Exists' : '❌ Removed'}`);
+        
+        if (!exists) {
+          console.log(`🛈 FOUND REMOVED COLUMN: '${col.name}' at index ${index}`);
+          changes.push({
+            type: 'removed',
+            name: col.name,
+            index: index
+          });
+        }
+      });
+      
+      // Check for added or reordered columns
+      currentColumns.forEach((col: any, currentIndex: number) => {
+        const savedColumn = savedColumnMap.get(col.name);
+        
+        if (!savedColumn) {
+          // This is a new column
+          console.log(`➕ FOUND NEW COLUMN: '${col.name}' at index ${currentIndex}`);
+          changes.push({
+            type: 'added',
+            name: col.name,
+            index: currentIndex
+          });
+        } else if (savedColumn.index !== currentIndex) {
+          // Column exists but position changed
+          console.log(`🔄 FOUND REORDERED COLUMN: '${col.name}' moved from index ${savedColumn.index} to ${currentIndex}`);
+          changes.push({
+            type: 'reordered',
+            name: col.name,
+            index: savedColumn.index,
+            newIndex: currentIndex
+          });
+        } else {
+          // Column is unchanged
+          console.log(`✔️ UNCHANGED COLUMN: '${col.name}' at index ${currentIndex}`);
+          changes.push({
+            type: 'unchanged',
+            name: col.name,
+            index: currentIndex
+          });
+        }
+      });
+      
+      // Create merged columns that preserves custom settings from saved columns
+      // but updates with the current column order and includes new columns
+      const mergedColumns = currentColumns.map((col: any, index: number) => {
+        const savedColumn = savedColumnMap.get(col.name);
+        
+        if (savedColumn) {
+          // Preserve id, type, description, and options from saved column
+          console.log(`🧲 Merging column '${col.name}' with saved settings:`, {
+            savedId: savedColumn.id,
+            savedType: savedColumn.type,
+            newType: col.type
+          });
+          return {
+            id: savedColumn.id || `col-${Math.random().toString(36).substring(2, 11)}`,
+            name: col.name,
+            type: savedColumn.type,
+            description: savedColumn.description || '',
+            options: savedColumn.options || []
+          };
+        } else {
+          // New column, generate new ID and use inferred type from API
+          console.log(`🆕 Creating new column object for '${col.name}' with type: ${col.type}`);
+          return {
+            id: `col-${Math.random().toString(36).substring(2, 11)}`,
+            name: col.name,
+            type: col.type,
+            description: '',
+            options: []
+          };
+        }
+      });
+      
+      // What about removed columns? We need to check if any were found
+      const addedColumns = changes.filter(c => c.type === 'added').length;
+      const removedColumns = changes.filter(c => c.type === 'removed').length;
+      const reorderedColumns = changes.filter(c => c.type === 'reordered').length;
+      
+      // Important: we also need to include removed columns in the merged results
+      // so ReviewFields component can still see them but mark them as removed
+      const removedColumnsData = savedColumns
+        .filter((col: { name: string }) => !currentColumnMap.has(col.name))
+        .map((col: { name: string; id?: string; type?: string; description?: string; options?: any[] }) => ({
+          ...col,
+          isRemoved: true  // Mark as removed so UI can handle it appropriately
+        }));
+      
+      // Add removed columns to the end of mergedColumns with a special flag
+      const finalMergedColumns = [...mergedColumns];
+      
+      if (removedColumnsData.length > 0) {
+        console.log(`🚫 Including ${removedColumnsData.length} removed columns in results with 'isRemoved' flag:`, 
+          removedColumnsData.map((col: any) => col.name));
+        finalMergedColumns.push(...removedColumnsData);
+      }
+      
+      const hasChanges = changes.some(change => change.type !== 'unchanged');
+      console.log(`📊 COLUMN CHANGES SUMMARY: ${hasChanges ? '⚠️ Changes detected' : '✅ No changes'}`);
+      console.log(`- Added: ${addedColumns}`);
+      console.log(`- Removed: ${removedColumns}`);
+      console.log(`- Reordered: ${reorderedColumns}`);
+      console.log(`- Final merged column count: ${finalMergedColumns.length}`);
+      
+      return {
+        hasChanges: hasChanges,
+        changes,
+        mergedColumns: finalMergedColumns,
+        savedColumns,
+        currentColumns
+      };
+    } catch (error) {
+      console.error('Error checking column changes:', error);
+      return null;
+    }
+  };
 
   return (
     <GoogleSheetsContext.Provider
@@ -649,7 +853,8 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         saveSheetConnection,
         writeSheetColumns,
         getSheetConnection,
-        lastRefreshAttempt,
+        checkSheetColumnChanges,
+        lastRefreshAttempt
       }}
     >
       {children}

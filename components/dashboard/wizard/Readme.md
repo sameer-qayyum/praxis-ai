@@ -52,6 +52,7 @@ type Step = {
 
 - `currentStep: number` - Tracks the active step (1-3)
 - `initialCheckComplete: boolean` - Indicates if the Google connection check is complete
+- `columnChanges: ColumnSyncResult | null` - Stores detected sheet column changes (added, removed, reordered)
 
 ### Context Usage
 
@@ -98,6 +99,8 @@ Allows users to:
 - List existing Google Sheets
 - Create new Google Sheets
 - Select a sheet for use
+- Detect changes in sheet column structure (added, removed, reordered columns)
+- Show toast notifications when changes are detected
 
 ### ReviewFields
 
@@ -106,6 +109,11 @@ Enables users to:
 - Customize field properties (name, type, description)
 - Include/exclude fields for the final app
 - Add custom fields if needed
+- See visual indicators for column changes:
+  - Red border/badge for columns removed from Google Sheet
+  - Green border/badge for columns newly added to Google Sheet
+  - Amber border/badge for columns reordered in Google Sheet
+- Auto-exclude removed columns (defaults to unchecked "Include")
 
 ## Data Saving Process
 

@@ -12,9 +12,11 @@ import {
 } from "lucide-react"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-// import { useToast } from "@/components/ui/use-toast" - We'll add proper toast notifications in a future update
+import { toast } from "sonner"
 
-// Import the GoogleSheet type directly from the context
+// Import the needed types from the context
+import type { ColumnChange, ColumnSyncResult } from "@/context/GoogleSheetsContext"
+
 interface SheetSortOption {
   label: string;
   value: 'name' | 'lastModified';
@@ -27,7 +29,11 @@ interface SheetOrderOption {
   icon: React.ReactNode;
 }
 
-export function UploadForm() {
+interface UploadFormProps {
+  onSheetColumnsChange?: (columnChanges: ColumnSyncResult) => void;
+}
+
+export function UploadForm({ onSheetColumnsChange }: UploadFormProps = {}) {
   const [activeTab, setActiveTab] = useState<string>("existing-sheet")
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -48,6 +54,7 @@ export function UploadForm() {
     pagination,
     listSheets,
     loadMoreSheets,
+    checkSheetColumnChanges,
     refreshSheets,
     createSheet
   } = useGoogleSheets()
@@ -237,8 +244,49 @@ export function UploadForm() {
                   <div
                     key={sheet.id}
                     className={`flex items-center p-3 rounded-lg cursor-pointer border transition-colors ${selectedSheet?.id === sheet.id ? 'bg-primary/10 border-primary/30' : 'hover:bg-gray-100 border-transparent'}`}
-                    onClick={() => {
+                    onClick={async () => {
+                      // Immediate toast to verify toast system works
+                      toast.success('Selected sheet: ' + sheet.name);
                       setSelectedSheet(sheet);
+                                            // Check for column changes in this sheet compared to saved metadata
+                       try {
+                         console.log(`🔎 Checking column changes for sheet: ${sheet.id}`);
+                         const columnChanges = await checkSheetColumnChanges(sheet.id);
+                         
+                         console.log(`📊 Column changes result:`, columnChanges);
+                         
+                         if (columnChanges) {
+                           console.log(`📊 Has changes: ${columnChanges.hasChanges}`);
+                           console.log(`📊 Changes array length: ${columnChanges.changes?.length || 0}`);
+                           
+                           // Force display toast even if hasChanges is false (for debugging)
+                           const addedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'added').length;
+                           const removedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'removed').length;
+                           const reorderedColumns = columnChanges.changes.filter((c: ColumnChange) => c.type === 'reordered').length;
+                           
+                           console.log(`📊 Added: ${addedColumns}, Removed: ${removedColumns}, Reordered: ${reorderedColumns}`);
+                           
+                           // Show toast regardless of hasChanges flag (for debugging)
+                           toast.info(
+                             'Sheet columns debug info', 
+                             {
+                               description: `Changes detected: ${columnChanges.hasChanges}. Found ${addedColumns} new, ${removedColumns} removed, and ${reorderedColumns} reordered columns.`,
+                               duration: 8000
+                             }
+                           );
+                           
+                           // Always pass column changes to parent, even if hasChanges is false
+                           if (onSheetColumnsChange) {
+                             console.log(`📤 Passing column changes to WizardContainer`);
+                             onSheetColumnsChange(columnChanges);
+                           }
+                         } else {
+                           console.log(`❌ No column changes result returned (null)`);
+                           toast.error('Failed to check column changes');
+                         }
+                      } catch (error) {
+                        console.error('Error checking column changes:', error);
+                      }
                     }}
                   >
                     <div className="flex-shrink-0 mr-3">

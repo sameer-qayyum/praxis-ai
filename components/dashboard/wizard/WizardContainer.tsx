@@ -8,6 +8,7 @@ import { ConnectGoogleSheets } from "./steps/ConnectGoogleSheets"
 import { UploadForm } from "./steps/UploadForm"
 import { ReviewFields } from "./steps/ReviewFields"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
+import type { ColumnSyncResult } from "@/context/GoogleSheetsContext"
 import { toast } from "sonner"
 
 interface WizardContainerProps {
@@ -22,6 +23,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const [selectedFieldsCount, setSelectedFieldsCount] = useState(0)
   const [fields, setFields] = useState<any[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [columnChanges, setColumnChanges] = useState<ColumnSyncResult | null>(null)
   const { isConnected, isLoading, checkConnectionStatus, selectedSheet, saveSheetConnection, writeSheetColumns } = useGoogleSheets()
   
   // Check Google token validity on mount and skip to step 2 if valid
@@ -190,11 +192,12 @@ export function WizardContainer({ title, description, templateId }: WizardContai
     if (isConnected) {
       switch (currentStep) {
         case 2:
-          return <UploadForm />
+          return <UploadForm onSheetColumnsChange={setColumnChanges} />
         case 3:
           return <ReviewFields 
             onFieldsChange={setSelectedFieldsCount} 
             onFieldsUpdate={setFields} 
+            columnChanges={columnChanges}
           />
         default:
           return <div>Step not found</div>
@@ -205,11 +208,12 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         case 1:
           return <ConnectGoogleSheets />
         case 2:
-          return <UploadForm />
+          return <UploadForm onSheetColumnsChange={setColumnChanges} />
         case 3:
           return <ReviewFields 
             onFieldsChange={setSelectedFieldsCount} 
             onFieldsUpdate={setFields} 
+            columnChanges={columnChanges}
           />
         default:
           return <div>Step not found</div>
