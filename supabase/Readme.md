@@ -226,4 +226,25 @@ Creates a new Google Sheet for the user.
 - **Environment Variables Required**:
   - `SUPABASE_URL`: Supabase project URL
   - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
-  - `SUPABASE_SERVICE_ROLE_KEY`: Service role key for database access
+
+### `write-sheet-columns`
+
+Updates a Google Sheet with column headers.
+
+- **Endpoint**: `https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/write-sheet-columns`
+- **Method**: POST
+- **Authentication**: Requires a valid Supabase JWT token
+- **Request Body**:
+  - `userId`: UUID - The user's ID
+  - `sheetId`: string - The Google Sheet ID to update
+  - `columns`: Array<{ id: string, name: string, type: string, description: string, options?: string[] }> - Column metadata (only names are written to sheet)
+- **Response**:
+  - Success (200): `{ success: true, updatedRange: string, updatedRows: number, updatedColumns: number }`
+  - Error (400-500): `{ error: string, message?: string }`
+- **Description**: Updates the target Google Sheet with column headers (row 1 only). Preserves existing columns while adding new ones. Supports unlimited columns beyond the 26-column A-Z limit. Automatically handles token validation and refreshes expired tokens.
+- **Limitations**:
+  - Maximum fetch limit of 500 existing columns (can be increased if needed)
+  - Column names should be unique to avoid conflicts
+- **Environment Variables Required**:
+  - `SUPABASE_URL`: Supabase project URL
+  - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key

@@ -66,6 +66,7 @@ interface GoogleSheetsContextType {
   createSheet: (name: string) => Promise<GoogleSheet | null>;
   getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
   saveSheetConnection: (name: string, description: string, columnsMetadata: any[]) => Promise<boolean>;
+  writeSheetColumns: (sheetId: string, columns: any[]) => Promise<boolean>;
   lastRefreshAttempt?: Date;
 }
 
@@ -478,8 +479,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     description: string,
     columnsMetadata: any[]
   ): Promise<boolean> => {
-    console.log('🔍 saveSheetConnection called with:', { name, description, columnsMetadataLength: columnsMetadata.length });
-    console.log('🔍 Selected sheet:', selectedSheet);
     
     if (!selectedSheet?.id) {
       console.error("❌ No sheet selected")
@@ -555,13 +554,70 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           throw error;
         }
         result = data;
-        console.log('✅ Inserted successfully:', data);
       }
 
       console.log('✅ Sheet connection saved successfully!');
       return true
     } catch (error) {
       console.error("❌ Error saving sheet connection:", error)
+      return false
+    }
+  }
+
+  // Write columns to a Google Sheet via Edge Function
+  const writeSheetColumns = async (
+    sheetId: string, 
+    columns: any[]
+  ): Promise<boolean> => {
+    console.log('🔍 writeSheetColumns called with:', { 
+      sheetId, 
+      columnsCount: columns.length,
+      firstColumnName: columns[0]?.name || 'No columns'
+    });
+    
+    try {
+      // Get current user
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.user?.id) {
+        throw new Error("No authenticated user")
+      }
+
+      // Call the Edge Function to write columns to sheet
+      
+      const requestBody = {
+        userId: session.user.id,
+        sheetId,
+        columns
+      };
+      
+     
+      
+      const response = await fetch("https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/write-sheet-columns", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      try {
+        const result = await response.json()
+        
+        if (!response.ok || result.error) {
+          console.error("❌ Error writing columns to sheet:", result.error || response.statusText);
+          console.error("❌ Full error response:", result);
+          return false
+        }
+
+        return true
+      } catch (parseError) {
+        console.error("❌ Error parsing response JSON:", parseError);
+        return false
+      }
+    } catch (error) {
+      console.error("❌ Error writing columns to sheet:", error);
       return false
     }
   }
@@ -590,6 +646,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         createSheet,
         getSheetColumns,
         saveSheetConnection,
+        writeSheetColumns,
         lastRefreshAttempt,
       }}
     >

@@ -186,12 +186,31 @@ export async function GET(
       }
     }
 
+    /**
+     * Converts a column index to Excel-style column letters (1-based index)
+     * Examples: 1 -> A, 26 -> Z, 27 -> AA, 28 -> AB, 703 -> AAA
+     */
+    function columnToLetter(column: number): string {
+      let temp: number;
+      let letter = '';
+      while (column > 0) {
+        temp = (column - 1) % 26;
+        letter = String.fromCharCode(temp + 65) + letter;
+        column = (column - (temp + 1)) / 26;
+      }
+      return letter;
+    }
+    
     // Call Google Sheets API to get the sheet data
     const sheetId = params.sheetId;
     
+    // Use a wider range to support more columns (up to 500)
+    const MAX_COLUMN_FETCH = 500;
+    const endColumnLetter = columnToLetter(MAX_COLUMN_FETCH);
+    
     // First, get the first row (headers)
     const headersResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:Z1`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:${endColumnLetter}1`,
       {
         headers: {
           Authorization: `Bearer ${credentials.access_token}`,
@@ -218,9 +237,9 @@ export async function GET(
       });
     }
 
-    // Get sample data (first 5 rows after header)
+    // Get sample data (first 5 rows after header) - using same column range as headers
     const samplesResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A2:Z6`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A2:${endColumnLetter}6`,
       {
         headers: {
           Authorization: `Bearer ${credentials.access_token}`,

@@ -71,6 +71,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
           toast.error("The selected sheet appears to be empty. Please add custom fields.");
         } else {
           // Transform API response to our Field format
+          
           const transformedFields = data.columns.map((col: any, index: number) => {
             // Capitalize first letter of type to match our dropdown options
             let fieldType = col.type || 'text';
@@ -135,8 +136,16 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
     fetchColumnData();
   }, [selectedSheet, getSheetColumns, toast]);
   
+  // Update parent component about fields
+  useEffect(() => {
+    if (onFieldsUpdate && fields.length > 0) {
+      onFieldsUpdate(fields);
+    }
+  }, [fields, onFieldsUpdate]);
+
   // Field handlers
   const handleIncludeChange = (id: string, checked: boolean) => {
+    
     setFields(prev => {
       const updatedFields = prev.map(field => 
         field.id === id ? { ...field, include: checked } : field
@@ -144,6 +153,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
       
       // Calculate new included count and notify parent
       const newIncludedCount = updatedFields.filter(f => f.include).length;
+      
       setIncludedFieldCount(newIncludedCount);
       if (onFieldsChange) {
         onFieldsChange(newIncludedCount);
@@ -256,6 +266,18 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
     onFieldsChange?.(count)
     onFieldsUpdate?.(fields)
   }, [fields, onFieldsChange, onFieldsUpdate]);
+
+  // Calculate the number of included fields on initial load
+  useEffect(() => {
+    const includedCount = fields.filter(field => field.include).length;
+    
+    setIncludedFieldCount(includedCount);
+    
+    // Notify parent about initial field count
+    if (onFieldsChange) {
+      onFieldsChange(includedCount);
+    }
+  }, [fields, onFieldsChange]);
 
   // Render loading state
   if (loading) {

@@ -22,7 +22,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const [selectedFieldsCount, setSelectedFieldsCount] = useState(0)
   const [fields, setFields] = useState<any[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { isConnected, isLoading, checkConnectionStatus, selectedSheet, saveSheetConnection } = useGoogleSheets()
+  const { isConnected, isLoading, checkConnectionStatus, selectedSheet, saveSheetConnection, writeSheetColumns } = useGoogleSheets()
   
   // Check Google token validity on mount and skip to step 2 if valid
   useEffect(() => {
@@ -43,8 +43,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
     window.scrollTo(0, 0)
   }, [currentStep])
 
-  const handleFinish = async () => {
-    
+  const handleFinish = async () => {    
     if (!selectedSheet?.id || selectedFieldsCount === 0) {
       console.log('❌ Validation failed:', { 
         hasSheetId: !!selectedSheet?.id, 
@@ -52,9 +51,12 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       });
       return;
     }
+    
     setIsSubmitting(true);
+    
     try {
-      // Filter only included fields and format for storage      
+      // Filter only included fields and format for storage
+      
       const columnsMetadata = fields
         .filter(field => {
           const included = !!field.include;
@@ -72,15 +74,39 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       // Use sheet name as connection name
       const connectionName = selectedSheet.name;
       const connectionDescription = `App created from ${selectedSheet.name} sheet with ${columnsMetadata.length} fields`;
-      const success = await saveSheetConnection(
-        connectionName,
-        connectionDescription,
-        columnsMetadata
-      );
-
-      if (success) {
-        toast.success('App created successfully! Sheet connection saved.');
+      // Database save with specific try/catch
+      let dbSaveResult = false;
+      try {
+        dbSaveResult = await saveSheetConnection(
+          connectionName,
+          connectionDescription,
+          columnsMetadata
+        );
+        
+      } catch (dbError) {
+        console.error('❌ saveSheetConnection error:', dbError);
+      }
+      
+      // Sheet update with specific try/catch
+      let sheetUpdateResult = false;
+      try {
+        sheetUpdateResult = await writeSheetColumns(
+          selectedSheet.id,
+          columnsMetadata
+        );
+      } catch (sheetError) {
+        console.error('❌ writeSheetColumns error:', sheetError);
+        console.error('❌ Error details:', JSON.stringify(sheetError));
+      }
+      
+      // Report results
+      if (dbSaveResult && sheetUpdateResult) {
+        toast.success('App created successfully! Sheet and columns updated.');
         // You can add navigation to the created app here
+      } else if (dbSaveResult) {
+        toast.success('App created but sheet columns could not be updated.');
+      } else if (sheetUpdateResult) {
+        toast.warning('Sheet columns updated but app data could not be saved. Please try again.');
       } else {
         toast.error('Failed to create app. Please try again.');
       }
