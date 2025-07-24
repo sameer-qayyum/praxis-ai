@@ -162,6 +162,7 @@ Allows users to:
    - OAuth authentication
    - Sheet listing and creation
    - Token refresh mechanism
+   - Write new custom column headers to sheet
 
 2. **Styling**
    - Tailwind CSS for responsive design

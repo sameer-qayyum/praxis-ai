@@ -115,17 +115,30 @@ Deno.serve(async (req)=>{
     let mergedHeaders = [
       ...existingHeaders
     ];
-    // Process each column from the request
-    columns.forEach((col)=>{
+    // Create a set to track columns we've already processed
+    const processedColumns = new Set();
+    
+    // Process each column from the request in their original order
+    columns.forEach((col) => {
       const existingIndex = existingColumnMap.get(col.name);
       if (existingIndex !== undefined) {
         // Update existing column name
         mergedHeaders[existingIndex] = col.name;
+        // Mark this column as processed
+        processedColumns.add(col.name);
       } else {
-        // Add new column name
-        mergedHeaders.push(col.name);
+        // We'll collect new columns separately to maintain their order
+        // instead of immediately pushing to mergedHeaders
       }
     });
+
+    // Create a new array with existing columns first, followed by new columns in their original order
+    const newColumns = columns
+      .filter(col => !processedColumns.has(col.name) && !existingColumnMap.has(col.name))
+      .map(col => col.name);
+    
+    // Add all new columns at once, preserving their order
+    mergedHeaders = [...mergedHeaders, ...newColumns];
     // Prepare the values to send to Google Sheets API - only headers row
     const values = [
       mergedHeaders

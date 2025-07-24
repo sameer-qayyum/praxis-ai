@@ -144,7 +144,7 @@ export async function GET(
       // Token is expired, attempt to refresh
       try {
         const refreshResponse = await fetch(
-          `${process.env.SUPABASE_URL}/functions/v1/refresh-google-token`,
+          `https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/refresh-google-token`,
           {
             method: 'POST',
             headers: {
