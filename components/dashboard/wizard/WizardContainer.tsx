@@ -73,19 +73,9 @@ export function WizardContainer({ title, description, templateId }: WizardContai
             options: field.options || []
           };
           
-          // Debug log each field being saved to the database
-          console.log(`🔍 Saving field metadata for ${field.name}:`, {
-            ...fieldMeta,
-            typeCheck: `Type is ${typeof field.type}, value: ${field.type}`,
-            descriptionCheck: `Description is ${typeof field.description}, value: ${field.description}`
-          });
-          
           return fieldMeta;
         });
         
-      // Debug log the entire columns metadata array
-      console.log('📋 All columns metadata to be saved:', JSON.stringify(columnsMetadata, null, 2));
-
       // Use sheet name as connection name
       const connectionName = selectedSheet.name;
       const connectionDescription = `App created from ${selectedSheet.name} sheet with ${columnsMetadata.length} fields`;

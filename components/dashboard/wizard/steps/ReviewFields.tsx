@@ -67,25 +67,9 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
         const existingConnection = await getSheetConnection(selectedSheet.id);
         
         // Add detailed logging to debug what's coming from the database
-        console.log('📊 Raw connection data from database:', existingConnection);
         
         if (existingConnection?.columns_metadata && Array.isArray(existingConnection.columns_metadata)) {
           // We found existing column metadata, use that instead of fetching from the sheet
-          console.log('🔄 Using existing connection metadata:', { 
-            connectionId: existingConnection.id,
-            fieldsCount: existingConnection.columns_metadata.length 
-          });
-          
-          // Log each column metadata entry to inspect types and descriptions
-          console.log('📋 Individual column metadata entries:');
-          existingConnection.columns_metadata.forEach((col: any, idx: number) => {
-            console.log(`Column ${idx}: ${col.name}`, {
-              id: col.id,
-              type: col.type,
-              description: col.description,
-              options: col.options
-            });
-          });
           
           // Transform stored metadata into our Field format
           const storedFields = existingConnection.columns_metadata.map((col: any, index: number) => {
@@ -100,11 +84,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
               options: col.options || []
             };
             
-            console.log(`Transformed field ${index}: ${fieldObj.name}`, {
-              type: fieldObj.type,
-              description: fieldObj.description,
-              options: fieldObj.options
-            });
+            
             
             return fieldObj;
           });
@@ -224,7 +204,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
   };
   
   const handleTypeChange = (id: string, type: string) => {
-    console.log(`💡 handleTypeChange called with id=${id}, type=${type} (${typeof type})`);
+      
     
     setFields(prev => {
       const updatedFields = prev.map(field => {
@@ -234,22 +214,11 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
           const options = needsOptions ? (field.options?.length ? field.options : ["Option 1"]) : field.options;
           
           const updatedField = { ...field, type, options };
-          console.log(`💡 Updated field:`, {
-            id: updatedField.id,
-            name: updatedField.name,
-            oldType: field.type,
-            newType: updatedField.type,
-            typeIsString: typeof updatedField.type === 'string'
-          });
           
           return updatedField;
         }
         return field;
       });
-      
-      // Log entire updated fields array
-      console.log(`💡 All fields after type update:`, 
-        updatedFields.map(f => ({ id: f.id, name: f.name, type: f.type })));
       
       return updatedFields;
     });
@@ -335,13 +304,6 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
     onFieldsChange?.(count)
     
     if (onFieldsUpdate && fields.length > 0) {
-      console.log('💬 Updating parent with fields:', fields.map(f => ({
-        id: f.id, 
-        name: f.name, 
-        type: f.type, 
-        typeIsString: typeof f.type === 'string',
-        description: f.description
-      })));
       onFieldsUpdate(fields);
     }
   }, [fields, onFieldsChange, onFieldsUpdate]);
@@ -466,11 +428,6 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
                       <Select 
                         value={field.type}
                         onValueChange={(value) => {
-                          console.log(`🔍 Type change for field ${field.id}:`, {
-                            oldType: field.type,
-                            newType: value,
-                            typeOfNewValue: typeof value
-                          });
                           handleTypeChange(field.id, value);
                         }}
                       >
@@ -479,7 +436,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
                         </SelectTrigger>
                         <SelectContent>
                           {fieldTypes.map(type => {
-                            console.log(`Rendering option ${type}`);
+                            
                             return (
                               <SelectItem key={type} value={type}>{type}</SelectItem>
                             );

@@ -238,7 +238,6 @@ export function UploadForm() {
                     key={sheet.id}
                     className={`flex items-center p-3 rounded-lg cursor-pointer border transition-colors ${selectedSheet?.id === sheet.id ? 'bg-primary/10 border-primary/30' : 'hover:bg-gray-100 border-transparent'}`}
                     onClick={() => {
-                      console.log('Sheet selected:', sheet);
                       setSelectedSheet(sheet);
                     }}
                   >
