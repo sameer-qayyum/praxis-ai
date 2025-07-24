@@ -67,6 +67,7 @@ interface GoogleSheetsContextType {
   getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
   saveSheetConnection: (name: string, description: string, columnsMetadata: any[]) => Promise<boolean>;
   writeSheetColumns: (sheetId: string, columns: any[]) => Promise<boolean>;
+  getSheetConnection: (sheetId: string) => Promise<any | null>;
   lastRefreshAttempt?: Date;
 }
 
@@ -487,16 +488,16 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
 
     try {
       // Get current user
-      console.log('🔍 Getting user session...');
+      
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.user?.id) {
         console.error("❌ No authenticated user");
         throw new Error("No authenticated user")
       }
-      console.log('🔍 User session found:', { userId: session.user.id });
+      
 
       // Check if connection already exists for this sheet and user
-      console.log('🔍 Checking for existing connection...');
+      
       const { data: existingConnection, error: checkError } = await supabase
         .from('google_sheets_connections')
         .select('id')
@@ -509,13 +510,13 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         throw checkError
       }
       
-      console.log('🔍 Existing connection check result:', existingConnection ? 'Found existing' : 'No existing connection');
+      
 
       let result
 
       if (existingConnection) {
         // Update existing connection
-        console.log('🔍 Updating existing connection with id:', existingConnection.id);
+        
         const { data, error } = await supabase
           .from('google_sheets_connections')
           .update({
@@ -647,6 +648,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         getSheetColumns,
         saveSheetConnection,
         writeSheetColumns,
+        getSheetConnection,
         lastRefreshAttempt,
       }}
     >

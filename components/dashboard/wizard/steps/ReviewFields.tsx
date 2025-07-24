@@ -49,7 +49,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
   const [error, setError] = useState<string | null>(null);
   const [includedFieldCount, setIncludedFieldCount] = useState(0)
   const [customFieldCounter, setCustomFieldCounter] = useState(0);
-  const { selectedSheet, getSheetColumns } = useGoogleSheets();
+  const { selectedSheet, getSheetColumns, getSheetConnection } = useGoogleSheets();
   
   // Function to fetch column data when the component loads
   useEffect(() => {
@@ -63,7 +63,59 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
       setError(null);
 
       try {
-        // Use GoogleSheetsContext to fetch column data
+        // First check if we have an existing connection for this sheet
+        const existingConnection = await getSheetConnection(selectedSheet.id);
+        
+        // Add detailed logging to debug what's coming from the database
+        console.log('📊 Raw connection data from database:', existingConnection);
+        
+        if (existingConnection?.columns_metadata && Array.isArray(existingConnection.columns_metadata)) {
+          // We found existing column metadata, use that instead of fetching from the sheet
+          console.log('🔄 Using existing connection metadata:', { 
+            connectionId: existingConnection.id,
+            fieldsCount: existingConnection.columns_metadata.length 
+          });
+          
+          // Log each column metadata entry to inspect types and descriptions
+          console.log('📋 Individual column metadata entries:');
+          existingConnection.columns_metadata.forEach((col: any, idx: number) => {
+            console.log(`Column ${idx}: ${col.name}`, {
+              id: col.id,
+              type: col.type,
+              description: col.description,
+              options: col.options
+            });
+          });
+          
+          // Transform stored metadata into our Field format
+          const storedFields = existingConnection.columns_metadata.map((col: any, index: number) => {
+            // Detailed logging of each transformation
+            const fieldObj = {
+              id: col.id || `col-${index}`,
+              name: col.name,
+              type: col.type,
+              description: col.description || '',
+              include: true, // Always include fields from saved metadata
+              sampleData: [], // We don't have sample data from stored metadata
+              options: col.options || []
+            };
+            
+            console.log(`Transformed field ${index}: ${fieldObj.name}`, {
+              type: fieldObj.type,
+              description: fieldObj.description,
+              options: fieldObj.options
+            });
+            
+            return fieldObj;
+          });
+          
+          setFields(storedFields);
+          toast.success("Loaded your previously saved field configuration.");
+          setLoading(false);
+          return;
+        }
+        
+        // If no existing metadata, fetch column data from the sheet
         const data = await getSheetColumns(selectedSheet.id);
         
         if (data.isEmpty) {
@@ -134,7 +186,7 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
     };
 
     fetchColumnData();
-  }, [selectedSheet, getSheetColumns, toast]);
+  }, [selectedSheet, getSheetColumns, getSheetConnection, toast]);
   
   // Update parent component about fields
   useEffect(() => {
@@ -172,18 +224,35 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
   };
   
   const handleTypeChange = (id: string, type: string) => {
-    setFields(prev => 
-      prev.map(field => {
+    console.log(`💡 handleTypeChange called with id=${id}, type=${type} (${typeof type})`);
+    
+    setFields(prev => {
+      const updatedFields = prev.map(field => {
         if (field.id === id) {
           // Initialize options array if switching to a type that requires options
           const needsOptions = typesRequiringOptions.includes(type);
           const options = needsOptions ? (field.options?.length ? field.options : ["Option 1"]) : field.options;
           
-          return { ...field, type, options };
+          const updatedField = { ...field, type, options };
+          console.log(`💡 Updated field:`, {
+            id: updatedField.id,
+            name: updatedField.name,
+            oldType: field.type,
+            newType: updatedField.type,
+            typeIsString: typeof updatedField.type === 'string'
+          });
+          
+          return updatedField;
         }
         return field;
-      })
-    );
+      });
+      
+      // Log entire updated fields array
+      console.log(`💡 All fields after type update:`, 
+        updatedFields.map(f => ({ id: f.id, name: f.name, type: f.type })));
+      
+      return updatedFields;
+    });
     
     // If changed to a type requiring options, show a toast to notify user
     if (typesRequiringOptions.includes(type)) {
@@ -264,7 +333,17 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
     const count = fields.filter(field => field.include).length
     setIncludedFieldCount(count)
     onFieldsChange?.(count)
-    onFieldsUpdate?.(fields)
+    
+    if (onFieldsUpdate && fields.length > 0) {
+      console.log('💬 Updating parent with fields:', fields.map(f => ({
+        id: f.id, 
+        name: f.name, 
+        type: f.type, 
+        typeIsString: typeof f.type === 'string',
+        description: f.description
+      })));
+      onFieldsUpdate(fields);
+    }
   }, [fields, onFieldsChange, onFieldsUpdate]);
 
   // Calculate the number of included fields on initial load
@@ -386,15 +465,25 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate }: ReviewFieldsPro
                     <td className="py-4 px-4">
                       <Select 
                         value={field.type}
-                        onValueChange={(value) => handleTypeChange(field.id, value)}
+                        onValueChange={(value) => {
+                          console.log(`🔍 Type change for field ${field.id}:`, {
+                            oldType: field.type,
+                            newType: value,
+                            typeOfNewValue: typeof value
+                          });
+                          handleTypeChange(field.id, value);
+                        }}
                       >
                         <SelectTrigger className="w-[120px]">
                           <SelectValue placeholder="Type" />
                         </SelectTrigger>
                         <SelectContent>
-                          {fieldTypes.map(type => (
-                            <SelectItem key={type} value={type}>{type}</SelectItem>
-                          ))}
+                          {fieldTypes.map(type => {
+                            console.log(`Rendering option ${type}`);
+                            return (
+                              <SelectItem key={type} value={type}>{type}</SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                     </td>
