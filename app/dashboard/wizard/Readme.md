@@ -34,7 +34,6 @@ Create an API route that adds new rows of data to a Google Sheet. The route shou
 - Take row data as JSON in the request body
 - Validate the data matches the sheet's column structure
 - Append the data as new rows at the end of the sheet
-- Require user authentication to prevent unauthorized access
 - Return confirmation of the successful append operation
 - Use the user's stored Google access token securely
 ```

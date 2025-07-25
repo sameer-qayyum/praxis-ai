@@ -95,6 +95,55 @@ CREATE POLICY "Users can delete own Google Sheets connections"
   FOR DELETE 
   USING (auth.uid() = user_id);
 
+-- Create apps table to track app deployments
+CREATE TABLE public.apps (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  chat_id TEXT,
+  v0_project_id TEXT,
+  vercel_project_id TEXT,
+  app_url TEXT,
+  vercel_deployment_id TEXT,
+  template_id UUID REFERENCES public.templates(id),
+  google_sheet UUID REFERENCES public.google_sheets_connections(id),
+  number_of_messages INTEGER DEFAULT 0,
+  created_by UUID REFERENCES auth.users(id) NOT NULL,
+  updated_by UUID REFERENCES auth.users(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes for common queries
+CREATE INDEX idx_apps_created_by ON public.apps(created_by);
+CREATE INDEX idx_apps_google_sheet ON public.apps(google_sheet);
+CREATE INDEX idx_apps_template_id ON public.apps(template_id);
+
+-- Enable row level security
+ALTER TABLE public.apps ENABLE ROW LEVEL SECURITY;
+
+-- Policy to view own apps only
+CREATE POLICY "Users can view own apps" 
+  ON public.apps 
+  FOR SELECT 
+  USING (auth.uid() = created_by);
+
+-- Policy to insert own apps
+CREATE POLICY "Users can insert own apps" 
+  ON public.apps 
+  FOR INSERT 
+  WITH CHECK (auth.uid() = created_by);
+
+-- Policy to update own apps
+CREATE POLICY "Users can update own apps" 
+  ON public.apps 
+  FOR UPDATE 
+  USING (auth.uid() = created_by);
+
+-- Policy to delete own apps
+CREATE POLICY "Users can delete own apps" 
+  ON public.apps 
+  FOR DELETE 
+  USING (auth.uid() = created_by);
+
 -- Function to create a new profile after signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$

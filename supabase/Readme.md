@@ -66,7 +66,7 @@ Stores application templates with metadata for the dashboard.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | TEXT | Primary key (e.g., 'feedback-form') |
+| id | UUID | Primary key |
 | title | TEXT | Display title of the template |
 | description | TEXT | Short description of the template |
 | category | TEXT | Category for filtering (e.g., 'Forms', 'Dashboards') |
@@ -79,6 +79,26 @@ Stores application templates with metadata for the dashboard.
 | apps_count | INTEGER | Number of apps created from this template (default: 0) |
 | created_at | TIMESTAMP WITH TIME ZONE | When the template was created |
 | updated_at | TIMESTAMP WITH TIME ZONE | When the template was last updated |
+
+#### `public.apps`
+
+Tracks deployed applications and their associated resources.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| chat_id | TEXT | Chat or conversation ID associated with the app |
+| v0_project_id | TEXT | V0 project identifier |
+| vercel_project_id | TEXT | Vercel project identifier |
+| app_url | TEXT | Deployed application URL |
+| vercel_deployment_id | TEXT | Vercel deployment identifier |
+| template_id | UUID | References templates(id) for the app template used |
+| google_sheet | UUID | References google_sheets_connections(id) for data source |
+| number_of_messages | INTEGER | Count of messages in the app (default: 0) |
+| created_by | UUID | References auth.users(id) of app creator |
+| updated_by | UUID | References auth.users(id) of last user to update |
+| created_at | TIMESTAMP WITH TIME ZONE | When the app was created |
+| updated_at | TIMESTAMP WITH TIME ZONE | When the app was last updated |
 
 ## Database Functions
 
