@@ -58,26 +58,30 @@ export function WizardContainer({ title, description, templateId }: WizardContai
     setIsSubmitting(true);
     
     try {
-      // Filter only included fields and format for storage
+      // Store all fields with an active flag to preserve sheet structure
       
-      const columnsMetadata = fields
-        .filter(field => {
-          const included = !!field.include;
-          if (!included) console.log(`Field ${field.name} excluded`);
-          return included;
-        })
-        .map(field => {
-          // Create the field metadata object that will be saved to the database
-          const fieldMeta = {
-            id: field.id,
-            name: field.name,
-            type: field.type,
-            description: field.description,
-            options: field.options || []
-          };
-          
-          return fieldMeta;
-        });
+      const columnsMetadata = fields.map((field, index) => {
+        // Create the field metadata object that will be saved to the database
+        const fieldMeta = {
+          id: field.id,
+          name: field.name,
+          type: field.type,
+          description: field.description,
+          options: field.options || [],
+          active: !!field.include, // Track inclusion state with an active flag
+          originalIndex: field.originalIndex || index // Store original position if available, otherwise use current index
+        };
+        
+        // Log excluded fields
+        if (!field.include) {
+          console.log(`Field ${field.name} marked as inactive (excluded)`);
+        }
+        
+        return fieldMeta;
+      });
+      
+      // Also create a filtered version for app generation purposes
+      const activeColumnsMetadata = columnsMetadata.filter(field => field.active);
         
       // Use sheet name as connection name
       const connectionName = selectedSheet.name;

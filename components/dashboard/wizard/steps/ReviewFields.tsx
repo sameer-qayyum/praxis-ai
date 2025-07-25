@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Info, Loader2 } from "lucide-react"
+import { Plus, Info, Loader2, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useEffect, useState } from "react"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
@@ -25,6 +25,8 @@ interface Field {
   isReordered?: boolean // Flag for columns that have been reordered in the Google Sheet
   oldIndex?: number // Previous index for reordered columns
   newIndex?: number // New index for reordered columns
+  isCustom?: boolean // Flag for custom fields added by the user in the UI
+  originalIndex?: number // Store original position in the sheet
 }
 
 // Field type options
@@ -232,28 +234,16 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
     fetchColumnData()
   }, [selectedSheet, getSheetColumns, getSheetConnection, toast])
 
-  // Update parent component about fields
-  useEffect(() => {
-    if (onFieldsUpdate && fields.length > 0) {
-      onFieldsUpdate(fields)
-    }
-  }, [fields, onFieldsUpdate])
+  // This useEffect was removed to prevent duplicate updates (now handled by the useEffect at the end of the component)
 
   // Field handlers
   const handleIncludeChange = (id: string, checked: boolean) => {
+    // Only update the fields state, let the useEffect handle counting and parent notifications
     setFields((prev) => {
-      const updatedFields = prev.map((field) => (field.id === id ? { ...field, include: checked } : field))
-
-      // Calculate new included count and notify parent
-      const newIncludedCount = updatedFields.filter((f) => f.include).length
-
-      setIncludedFieldCount(newIncludedCount)
-      if (onFieldsChange) {
-        onFieldsChange(newIncludedCount)
-      }
-
-      return updatedFields
+      return prev.map((field) => (field.id === id ? { ...field, include: checked } : field))
     })
+    // Note: We removed the nested state updates and parent notifications
+    // These will be handled by the useEffect that watches for field changes
   }
 
   const handleNameChange = (id: string, name: string) => {
@@ -302,10 +292,21 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
         include: true,
         sampleData: [],
         options: [],
+        isCustom: true, // Mark this as a custom field
       },
     ])
 
     setCustomFieldCounter((prev) => prev + 1)
+  }
+
+  // Delete a field (only custom fields can be deleted)
+  const deleteField = (id: string) => {
+    // Verify it's a custom field before removing
+    const fieldToDelete = fields.find(field => field.id === id)
+    if (!fieldToDelete?.isCustom) return
+    
+    setFields((prev) => prev.filter((field) => field.id !== id))
+    toast.success("Custom field removed")
   }
 
   // Add an option to a field
@@ -351,14 +352,21 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
     )
   }
 
-  // Update included fields count
+  // Update included fields count and notify parent components
   useEffect(() => {
-    const count = fields.filter((field) => field.include).length
-    setIncludedFieldCount(count)
-    onFieldsChange?.(count)
-
-    if (onFieldsUpdate && fields.length > 0) {
-      onFieldsUpdate(fields)
+    if (fields.length === 0) return;
+    
+    const includedCount = fields.filter((field) => field.include).length;
+    setIncludedFieldCount(includedCount);
+    
+    // Notify parent about field count
+    if (onFieldsChange) {
+      onFieldsChange(includedCount);
+    }
+    
+    // Update fields in parent if needed
+    if (onFieldsUpdate) {
+      onFieldsUpdate(fields);
     }
   }, [fields, onFieldsChange, onFieldsUpdate])
 
@@ -366,18 +374,6 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
   const getFieldType = (field: Field) => {
     return field.type || "Text"
   }
-
-  // Calculate the number of included fields on initial load
-  useEffect(() => {
-    const includedCount = fields.filter((field) => field.include).length
-
-    setIncludedFieldCount(includedCount)
-
-    // Notify parent about initial field count
-    if (onFieldsChange) {
-      onFieldsChange(includedCount)
-    }
-  }, [fields, onFieldsChange])
 
   // Render loading state
   if (loading) {
@@ -543,6 +539,18 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
                         </label>
                       </div>
                       <Badge variant="outline">{getFieldType(field)}</Badge>
+                      
+                      {/* Show delete button only for custom fields */}
+                      {field.id.startsWith('custom-') && (
+                        <Button 
+                          onClick={() => deleteField(field.id)} 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
