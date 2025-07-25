@@ -551,10 +551,9 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           throw error;
         }
         result = data;
-        console.log('✅ Updated successfully:', data);
       } else {
         // Insert new connection
-        console.log('🔍 Inserting new connection for sheet:', selectedSheet.id);
+        
         const { data, error } = await supabase
           .from('google_sheets_connections')
           .insert({
@@ -573,8 +572,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         }
         result = data;
       }
-
-      console.log('✅ Sheet connection saved successfully!');
       return true
     } catch (error) {
       console.error("❌ Error saving sheet connection:", error)

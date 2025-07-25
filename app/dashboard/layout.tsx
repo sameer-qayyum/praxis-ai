@@ -1,9 +1,3 @@
-import { DeployButton } from "@/components/deploy-button";
-import { EnvVarWarning } from "@/components/env-var-warning";
-import { AuthButton } from "@/components/auth-button";
-import { ThemeSwitcher } from "@/components/theme-switcher";
-import { hasEnvVars } from "@/lib/utils";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
@@ -11,6 +5,7 @@ import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { UserDropdown } from "@/components/dashboard/user-dropdown";
 import { FeedbackButton } from "@/components/dashboard/feedback-button";
 import { GoogleSheetsClientProvider } from "@/components/providers/GoogleSheetsClientProvider";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
 export default async function DashboardLayout({
   children,
@@ -27,7 +22,8 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950">
+    <QueryProvider>
+      <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950">
       {/* Sidebar - hidden on mobile */}
       <div className="hidden md:block h-screen bg-background">
         <DashboardSidebar />
@@ -93,5 +89,6 @@ export default async function DashboardLayout({
         </footer>
       </div>
     </div>
+    </QueryProvider>
   );
 }

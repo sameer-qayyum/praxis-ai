@@ -10,6 +10,7 @@ import { ReviewFields } from "./steps/ReviewFields"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import type { ColumnSyncResult } from "@/context/GoogleSheetsContext"
 import { toast } from "sonner"
+import { createClient } from "@/lib/supabase/client"
 
 interface WizardContainerProps {
   title: string
@@ -26,6 +27,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const [isCheckingColumns, setIsCheckingColumns] = useState(false)
   const [columnChanges, setColumnChanges] = useState<ColumnSyncResult | null>(null)
   const { isConnected, isLoading, checkConnectionStatus, selectedSheet, saveSheetConnection, writeSheetColumns } = useGoogleSheets()
+  const supabase = createClient()
   
   // Check Google token validity on mount and skip to step 2 if valid
   useEffect(() => {
@@ -48,10 +50,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
 
   const handleFinish = async () => {    
     if (!selectedSheet?.id || selectedFieldsCount === 0) {
-      console.log('❌ Validation failed:', { 
-        hasSheetId: !!selectedSheet?.id, 
-        selectedFieldsCount 
-      });
+      toast.error('Please select a sheet and at least one field');
       return;
     }
     
@@ -59,7 +58,6 @@ export function WizardContainer({ title, description, templateId }: WizardContai
     
     try {
       // Store all fields with an active flag to preserve sheet structure
-      
       const columnsMetadata = fields.map((field, index) => {
         // Create the field metadata object that will be saved to the database
         const fieldMeta = {
@@ -72,11 +70,6 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           originalIndex: field.originalIndex || index // Store original position if available, otherwise use current index
         };
         
-        // Log excluded fields
-        if (!field.include) {
-          console.log(`Field ${field.name} marked as inactive (excluded)`);
-        }
-        
         return fieldMeta;
       });
       
@@ -85,43 +78,138 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         
       // Use sheet name as connection name
       const connectionName = selectedSheet.name;
-      const connectionDescription = `App created from ${selectedSheet.name} sheet with ${columnsMetadata.length} fields`;
-      // Database save with specific try/catch
-      let dbSaveResult = false;
-      try {
-        dbSaveResult = await saveSheetConnection(
-          connectionName,
-          connectionDescription,
-          columnsMetadata
-        );
-        
-      } catch (dbError) {
-        console.error('❌ saveSheetConnection error:', dbError);
+      const connectionDescription = `App created from ${selectedSheet.name} sheet with ${activeColumnsMetadata.length} active fields out of ${columnsMetadata.length} total`;
+      
+      // 1. Save the Google Sheet connection to get the connection ID
+      const sheetConnectionResult = await saveSheetConnection(
+        connectionName,
+        connectionDescription,
+        columnsMetadata
+      );
+      
+      if (!sheetConnectionResult) {
+        throw new Error('Failed to save Google Sheet connection');
       }
       
-      // Sheet update with specific try/catch
-      let sheetUpdateResult = false;
-      try {
-        sheetUpdateResult = await writeSheetColumns(
-          selectedSheet.id,
-          columnsMetadata
-        );
-      } catch (sheetError) {
-        console.error('❌ writeSheetColumns error:', sheetError);
-        console.error('❌ Error details:', JSON.stringify(sheetError));
+      // Get the connection ID from the database
+      const { data: connectionData } = await supabase
+        .from('google_sheets_connections')
+        .select('id')
+        .eq('sheet_id', selectedSheet.id)
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+      
+      if (!connectionData?.id) {
+        throw new Error('Failed to retrieve Google Sheet connection ID');
       }
       
-      // Report results
-      if (dbSaveResult && sheetUpdateResult) {
-        toast.success('App created successfully! Sheet and columns updated.');
-        // You can add navigation to the created app here
-      } else if (dbSaveResult) {
-        toast.success('App created but sheet columns could not be updated.');
-      } else if (sheetUpdateResult) {
-        toast.warning('Sheet columns updated but app data could not be saved. Please try again.');
-      } else {
-        toast.error('Failed to create app. Please try again.');
+      // 2. Update sheet columns in the actual Google Sheet
+      const sheetUpdateResult = await writeSheetColumns(
+        selectedSheet.id,
+        columnsMetadata
+      );
+      
+      if (!sheetUpdateResult) {
+        toast.warning('Sheet columns could not be updated, but continuing with app creation');
       }
+      
+      // 3. Get the template's base prompt and build the complete prompt
+      const { data: templateData, error: templateError } = await supabase
+        .from('templates')
+        .select('base_prompt')
+        .eq('id', templateId)
+        .single();
+      
+      if (templateError || !templateData?.base_prompt) {
+        toast.warning('Could not find template prompt, using default prompt');
+      }
+      
+      const appName = `${connectionName} App`;
+      
+      // Format all fields and their metadata for the prompt
+      // First, sort fields by their original index to maintain sheet structure
+      const sortedFields = [...columnsMetadata].sort((a, b) => a.originalIndex - b.originalIndex);
+      
+      // Create a detailed metadata description for v0
+      const fieldsMetadataJson = JSON.stringify(sortedFields, null, 2);
+      
+      // Create a more human-readable version focused on active fields
+      const activeFieldsText = activeColumnsMetadata
+        .map(field => `${field.name} (${field.type})${field.description ? ': ' + field.description : ''}${field.options?.length > 0 ? ' | Options: ' + field.options.join(', ') : ''}`)
+        .join('\n');
+      
+      // Use template base_prompt if available, otherwise use a default
+      const basePrompt = templateData?.base_prompt || `Create a responsive Next.js app for a ${title}`;
+      
+      // Create a complete prompt with clear instructions about the metadata
+      const promptBase = `${basePrompt}\n\n
+      ACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText}\n\n
+      COMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n
+      This is the complete structure of the Google Sheet with all fields in their original order. For each field:\n
+      - id: Unique identifier for the column\n
+      - name: Column name as shown in the sheet\n
+      - type: Data type (Text, Number, Date, etc.)\n
+      - active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n
+      - options: For fields that have predefined options (like dropdowns)\n
+      - description: Additional information about the field\n
+      - originalIndex: The position of the column in the sheet (0-based)\n\n
+      ${fieldsMetadataJson}\n\n
+      When saving data back to the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null).`;
+      
+      // Get the current user's ID for RLS policy compliance
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id;
+      
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+      
+      // 4. Call the v0/generate API to create a chat and project
+      // Pass the user ID for RLS policy compliance
+      const generateResponse = await fetch('/api/v0/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: promptBase,
+          name: appName,
+          userId: userId
+        })
+      });
+      
+      if (!generateResponse.ok) {
+        const errorData = await generateResponse.json();
+        throw new Error(`Failed to generate app: ${errorData.error || generateResponse.statusText}`);
+      }
+      
+      const generateData = await generateResponse.json();
+      
+      // Log success info for debugging
+      console.log('App generated successfully:', {
+        chatId: generateData.chatId,
+        projectId: generateData.projectId
+      });
+      
+      // Note: We don't need to create a record in the apps table here
+      // because the API now creates it with all required fields including userId
+      
+      // Get the app data that was created by the API
+      const { data: appData, error: appError } = await supabase
+        .from('apps')
+        .select('id')
+        .eq('chat_id', generateData.chatId)
+        .single();
+      
+      if (appError || !appData) {
+        throw new Error(`Failed to create app record: ${appError?.message || 'Unknown error'}`);
+      }
+      
+      // Success! Show toast and redirect to the app page
+      toast.success('App created successfully!');
+      
+      // Redirect to the app page
+      window.location.href = `/dashboard/app/${appData.id}`;
     } catch (error) {
       toast.error('An error occurred while creating the app');
     } finally {

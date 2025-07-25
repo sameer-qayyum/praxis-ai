@@ -15,7 +15,8 @@ export function DashboardSidebar() {
   // Update collapsed state whenever pathname changes
   React.useEffect(() => {
     const isWizardRoute = pathname.includes('/wizard/')
-    setCollapsed(isWizardRoute)
+    const isAppRoute = pathname.includes('/app/')
+    setCollapsed(isWizardRoute || isAppRoute)
   }, [pathname])
 
   const navItems = [
