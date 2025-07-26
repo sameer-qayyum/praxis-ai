@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { message, name, userId } = body;
+    const { message, name, userId, templateId } = body;
     
     // Make sure we have a userId to satisfy RLS policies
     if (!userId) {
@@ -42,14 +42,6 @@ export async function POST(request: NextRequest) {
     
     // Configure the v0 SDK with API key
     // The v0-sdk is already initialized upon import, we just need to use it
-
-    // Debug: Log environment variables (not the actual key for security)
-    console.log('DEBUG - Environment variables check:');
-    console.log('V0_API_KEY exists:', !!process.env.V0_API_KEY);
-    console.log('NEXT_PUBLIC_V0_API_KEY exists:', !!process.env.NEXT_PUBLIC_V0_API_KEY);
-    console.log('Final API key exists:', !!apiKey);
-    console.log('API key length:', apiKey ? apiKey.length : 0);
-    
     // Validate
     if (!message) {
       return NextResponse.json(
@@ -65,9 +57,6 @@ export async function POST(request: NextRequest) {
       // Create a new chat with the v0 SDK
       const chat = await v0.chats.create({ message });
       
-      console.log('DEBUG - Chat created successfully, ID:', chat.id);
-      console.log('DEBUG - Project ID from chat response:', chat.projectId);
-      
       if (chat.id && chat.projectId) {
         // Store the chat and project reference in the database with the user ID to satisfy RLS
         const { error: dbError } = await supabase
@@ -78,6 +67,7 @@ export async function POST(request: NextRequest) {
             name: name || 'V0 Generated App',
             created_by: userId,
             status: 'generated',
+            template_id: templateId,
             preview_url:chat.demo
           });
         

@@ -229,7 +229,8 @@ CREATE TABLE public.templates (
   base_prompt TEXT,
   apps_count INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  user_prompt text
 );
 
 -- Create RLS policies for templates

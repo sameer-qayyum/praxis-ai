@@ -174,7 +174,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         body: JSON.stringify({
           message: promptBase,
           name: appName,
-          userId: userId
+          userId: userId,
+          templateId: templateId
         })
       });
       
@@ -185,11 +186,6 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       
       const generateData = await generateResponse.json();
       
-      // Log success info for debugging
-      console.log('App generated successfully:', {
-        chatId: generateData.chatId,
-        projectId: generateData.projectId
-      });
       
       // Note: We don't need to create a record in the apps table here
       // because the API now creates it with all required fields including userId

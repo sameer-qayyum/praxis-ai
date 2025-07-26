@@ -35,6 +35,7 @@ interface AppData {
   status: string
   google_sheet: string
   app_url: string
+  template_id: string
 }
 
 interface Message {
@@ -85,6 +86,31 @@ const AppPage = () => {
 
       return data as AppData
     },
+  })
+
+  // Fetch template data
+  const {
+    data: templateData,
+    isLoading: isLoadingTemplate,
+  } = useQuery({
+    queryKey: ["template", app?.template_id],
+    queryFn: async () => {
+      if (!app?.template_id) return null
+
+      const { data, error } = await supabase
+        .from("templates")
+        .select("user_prompt")
+        .eq("id", app.template_id)
+        .single()
+
+      if (error) {
+        console.error("Error fetching template:", error)
+        return null
+      }
+
+      return data
+    },
+    enabled: !!app?.template_id,
   })
 
   // Fetch chat messages
@@ -181,10 +207,13 @@ const AppPage = () => {
     },
   })
 
-  // Update messages when chat data changes
+  // Update messages when chat data and template data changes
   useEffect(() => {
     if (chatData) {
-      const formattedMessages = chatData.map((msg: any) => {
+      // Find the first user message index to replace
+      const firstUserMessageIndex = chatData.findIndex((msg: any) => msg.role === "user")
+      
+      const formattedMessages = chatData.map((msg: any, index: number) => {
         let content = msg.content
         let thinking = null
 
@@ -197,6 +226,12 @@ const AppPage = () => {
             content = content.replace(/<Thinking>[\s\S]*?<\/Thinking>/i, "").trim()
           }
         }
+        
+        // Replace first user message content with template user_prompt if available
+        const userPrompt = templateData?.user_prompt
+        if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
+          content = userPrompt
+        }
 
         return {
           id: msg.id,
@@ -207,9 +242,10 @@ const AppPage = () => {
           files: msg.files || [],
         }
       })
+      
       setMessages(formattedMessages)
     }
-  }, [chatData])
+  }, [chatData, templateData?.user_prompt])
 
   // Scroll to bottom when messages update
   useEffect(() => {
@@ -351,11 +387,11 @@ const AppPage = () => {
                               )}
                             </div>
 
-                            {msg.thinking && (
-                              <div className="max-w-[85%]">
-                                <ThinkingSection content={msg.thinking} />
-                              </div>
-                            )}
+                           {/* {{msg.thinking && (
+                             <div className="max-w-[85%]">
+                               <ThinkingSection content={msg.thinking} />
+                             </div>
+                           )}*/}
                           </div>
                         </div>
                       </div>
@@ -424,8 +460,8 @@ const AppPage = () => {
         )}
 
         {/* Preview Panel - Takes remaining space */}
-        <div className="flex flex-col bg-gray-50" style={{ width: isFullscreen ? '100%' : '70%' }}>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full">
+        <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ width: isFullscreen ? '100%' : '70%' }}>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full overflow-hidden">
             <div className="border-b bg-white px-4 py-3 flex-shrink-0">
               <TabsList className="grid w-[200px] grid-cols-2">
                 <TabsTrigger value="preview" className="text-xs">
@@ -439,14 +475,16 @@ const AppPage = () => {
               </TabsList>
             </div>
 
-            <TabsContent value="preview" className="flex-1 m-0 overflow-hidden">
+            <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden">
               {app.preview_url ? (
-                <iframe
-                  src={app.preview_url}
-                  title="App Preview"
-                  className="w-full h-full border-0 bg-white"
-                  style={{ minHeight: "100%" }}
-                />
+                <div className="w-full h-full">
+                  <iframe
+                    src={app.preview_url}
+                    title="App Preview"
+                    className="w-full h-full border-0 bg-white"
+                    style={{ height: "100%", overflow: "hidden" }}
+                  />
+                </div>
               ) : (
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center p-8">
@@ -464,8 +502,8 @@ const AppPage = () => {
               )}
             </TabsContent>
 
-            <TabsContent value="code" className="flex-1 m-0 overflow-hidden">
-              <ScrollArea className="h-full">
+            <TabsContent value="code" className="flex-1 m-0 p-0 overflow-hidden">
+              <ScrollArea className="h-full w-full">
                 <div className="p-4">
                   {messages.length > 0 ? (
                     <div className="space-y-6">

@@ -79,6 +79,7 @@ Stores application templates with metadata for the dashboard.
 | apps_count | INTEGER | Number of apps created from this template (default: 0) |
 | created_at | TIMESTAMP WITH TIME ZONE | When the template was created |
 | updated_at | TIMESTAMP WITH TIME ZONE | When the template was last updated |
+| user_prompt | TEXT | User prompt for this template type |
 
 #### `public.apps`
 
