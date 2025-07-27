@@ -12,6 +12,7 @@ import { AppHeader } from "./components/AppHeader"
 import { ChatPanel } from "./components/ChatPanel"
 import { PreviewPanel } from "./components/PreviewPanel"
 import { AppSkeleton } from "./components/AppSkeleton"
+import { MessageInput } from "./components/MessageInput"
 
 interface AppData {
   id: string
@@ -269,8 +270,8 @@ const AppPage = () => {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white">
-      {/* Header */}
+    <div className="h-screen flex flex-col bg-white relative">
+      {/* Header row - auto height */}
       <AppHeader 
         app={app}
         isDeploying={isDeploying || deployMutation.isPending}
@@ -279,14 +280,12 @@ const AppPage = () => {
         setIsFullscreen={setIsFullscreen}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Chat Panel */}
+      {/* Main Content - flex-1 takes all remaining space */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Chat Panel - with relative positioning to contain the input */}
         <div
-          className="border-r bg-white flex flex-col h-full"
-          style={{
-            width: isFullscreen ? 0 : '30%'
-          }}
+          className={`border-r bg-white relative ${isFullscreen ? 'hidden' : 'block'}`}
+          style={{ width: isFullscreen ? '0' : '30%', height: 'calc(100vh - 64px)' }}
         >
           <ChatPanel 
             isFullscreen={isFullscreen}
@@ -320,6 +319,32 @@ const AppPage = () => {
           handleDeploy={handleDeploy}
         />
       </div>
+
+      {/* Message input fixed to viewport with proper margins for footer and sidebar */}
+      {!isFullscreen && (
+        <div 
+          className="fixed bg-white dark:bg-slate-900 shadow-sm z-30 rounded-lg border border-gray-100 dark:border-gray-800" 
+          style={{ 
+            bottom: '100px', /* Reduced space to match UI in screenshot */
+            left: 'calc(70px + 16px)', /* Accounts for collapsed sidebar width + margin */
+            width: 'calc(30% - 40px)', /* Account for margins on both sides */
+            maxWidth: 'calc(30% - 40px)',
+            boxSizing: 'border-box',
+            transition: 'all 0.3s ease',
+          }}
+        >
+          <MessageInput
+            message={message}
+            setMessage={setMessage}
+            handleSendMessage={handleSendMessage}
+            showFileUpload={showFileUpload}
+            setShowFileUpload={setShowFileUpload}
+            uploadedFiles={uploadedFiles}
+            setUploadedFiles={setUploadedFiles}
+            sendMessageMutation={sendMessageMutation}
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -45,9 +45,9 @@ export const PreviewPanel = ({
   handleDeploy,
 }: PreviewPanelProps) => {
   return (
-    <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ width: isFullscreen ? '100%' : '70%' }}>
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full overflow-hidden">
-        <div className="border-b bg-white px-4 py-3 flex-shrink-0">
+    <div className={`flex flex-col bg-gray-50 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+        <div className="border-b bg-white px-4 py-3">
           <TabsList className="grid w-[200px] grid-cols-2">
             <TabsTrigger value="preview" className="text-xs">
               <Eye className="mr-1 h-3 w-3" />
@@ -60,7 +60,7 @@ export const PreviewPanel = ({
           </TabsList>
         </div>
 
-        <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden">
+        <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full">
           {app.preview_url ? (
             <div className="w-full h-full">
               <iframe
