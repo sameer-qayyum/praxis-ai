@@ -100,6 +100,8 @@ Tracks deployed applications and their associated resources.
 | updated_by | UUID | References auth.users(id) of last user to update |
 | created_at | TIMESTAMP WITH TIME ZONE | When the app was created |
 | updated_at | TIMESTAMP WITH TIME ZONE | When the app was last updated |
+| status | TEXT | Status of the app (e.g., 'generated', 'deployed') |
+| preview_url | TEXT | URL to the app's preview |
 
 ## Database Functions
 
