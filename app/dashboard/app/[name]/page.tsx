@@ -4,7 +4,7 @@ import type React from "react"
 import { useEffect, useState, useRef } from "react"
 import { notFound, useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/components/ui/use-toast"
 
 // Import our custom components
@@ -52,8 +52,10 @@ interface Message {
 const AppPage = () => {
   const params = useParams()
   const { name } = params
+  const queryClient = useQueryClient()
   const [message, setMessage] = useState("")
   const [messages, setMessages] = useState<Message[]>([])
+  const [fullChatData, setFullChatData] = useState<any>(null)
   const [activeTab, setActiveTab] = useState("preview")
   const [isDeploying, setIsDeploying] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -118,7 +120,7 @@ const AppPage = () => {
       if (!app?.chat_id) return null
 
       const response = await fetch(`/api/v0/messages?chatId=${app.chat_id}`, {
-        method: "GET",
+        method: "POST",
       })
 
       if (!response.ok) {
@@ -136,7 +138,7 @@ const AppPage = () => {
     mutationFn: async (newMessage: string) => {
       if (!app?.chat_id) return null
 
-      const response = await fetch("/api/v0/generate", {
+      const response = await fetch("/api/v0/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -144,7 +146,6 @@ const AppPage = () => {
         body: JSON.stringify({
           chatId: app.chat_id,
           message: newMessage,
-          isFollowUp: true,
           files: uploadedFiles,
         }),
       })
@@ -155,8 +156,37 @@ const AppPage = () => {
 
       return await response.json()
     },
-    onSuccess: () => {
-      refetchChat()
+    onSuccess: (data) => {
+      // Store the full chat data from the response
+      if (data.fullChatData) {
+        setFullChatData(data.fullChatData)
+        
+        // Update the React Query cache directly with the new data
+        // This makes the data available throughout the component without refetching
+        queryClient.setQueryData(["chat", app?.chat_id], data.fullChatData)
+        
+        // Update preview_url from demoUrl if it exists (either from root demo property or latestVersion.demoUrl)
+        const demoUrl = data.fullChatData.demo || 
+                     (data.fullChatData.latestVersion?.demoUrl) || 
+                      null;
+                      
+        if (demoUrl && app) {
+          // Update app data in the cache with the new preview_url
+          const updatedApp = {
+            ...app,
+            preview_url: demoUrl
+          };
+          
+          // Update the app data in the React Query cache
+          queryClient.setQueryData(["app", name], updatedApp);
+          
+          console.log('Updated preview URL:', demoUrl);
+        }
+        
+        console.log('Full chat data stored in cache:', data.fullChatData)
+      }
+      
+      // No need to refetch as we've updated the cache directly
       setMessage("")
       setUploadedFiles([])
       setShowFileUpload(false)
@@ -204,10 +234,33 @@ const AppPage = () => {
   // Update messages when chat data and template data changes
   useEffect(() => {
     if (chatData) {
-      // Find the first user message index to replace
-      const firstUserMessageIndex = chatData.findIndex((msg: any) => msg.role === "user")
+      // Check if chatData has demoUrl and update preview_url if needed
+      if (!Array.isArray(chatData)) {
+        // Get demo URL from either the root demo property or from latestVersion.demoUrl
+        const demoUrl = chatData.demo || 
+                       (chatData.latestVersion?.demoUrl) || 
+                        null;
+                      
+        if (demoUrl && app && app.preview_url !== demoUrl) {
+          // Update app data in the cache with the new preview_url
+          const updatedApp = {
+            ...app,
+            preview_url: demoUrl
+          };
+          
+          // Update the app data in the React Query cache
+          queryClient.setQueryData(["app", name], updatedApp);
+          console.log('Updated preview URL in useEffect:', demoUrl);
+        }
+      }
       
-      const formattedMessages = chatData.map((msg: any, index: number) => {
+      // Check if the chatData is the full response or just messages array
+      const messageArray = Array.isArray(chatData) ? chatData : (chatData.messages || [])
+      
+      // Find the first user message index to replace
+      const firstUserMessageIndex = messageArray.findIndex((msg: any) => msg.role === "user")
+      
+      const formattedMessages = messageArray.map((msg: any, index: number) => {
         let content = msg.content
         let thinking = null
 

@@ -1,8 +1,9 @@
+import React, { useState, useEffect } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Eye, Code2, RefreshCw } from "lucide-react"
+import { Eye, Code2, RefreshCw, RefreshCcw } from "lucide-react"
 
 interface AppData {
   preview_url: string
@@ -44,6 +45,16 @@ export const PreviewPanel = ({
   isDeploying,
   handleDeploy,
 }: PreviewPanelProps) => {
+  // Generate a unique key whenever preview_url changes to force iframe re-render
+  const [previewKey, setPreviewKey] = useState(Date.now());
+  
+  // Update the key when preview_url changes
+  useEffect(() => {
+    if (app?.preview_url) {
+      setPreviewKey(Date.now());
+      console.log('Preview URL changed, refreshing iframe:', app.preview_url);
+    }
+  }, [app?.preview_url]);
   return (
     <div className={`flex flex-col bg-gray-50 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
@@ -60,11 +71,22 @@ export const PreviewPanel = ({
           </TabsList>
         </div>
 
-        <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full">
+        <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative">
           {app.preview_url ? (
             <div className="w-full h-full">
+              {/* Refresh button in top-right corner */}
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="absolute top-2 right-2 z-10 bg-white/80 hover:bg-white" 
+                onClick={() => setPreviewKey(Date.now())}
+                title="Refresh preview"
+              >
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
               <iframe
-                src={app.preview_url}
+                key={previewKey} // Use dynamic key from state to force re-render
+                src={`${app.preview_url}?timestamp=${previewKey}`} // Use same timestamp for consistency
                 title="App Preview"
                 className="w-full h-full border-0 bg-white"
                 style={{ height: "100%", overflow: "hidden" }}
