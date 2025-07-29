@@ -145,6 +145,53 @@ export async function POST(request: NextRequest) {
           console.error('Error updating message count:', updateError);
           // Continue execution even if update fails - the message was sent successfully
         }
+        
+        // Check if result has latestVersion with a new version ID
+        if (result.latestVersion && result.latestVersion.id) {
+          // Get the max version_number for this app to determine the next version number
+          const { data: versionData, error: versionQueryError } = await supabase
+            .from('app_versions')
+            .select('version_number')
+            .eq('app_id', appData.id)
+            .order('version_number', { ascending: false })
+            .limit(1);
+            
+          if (versionQueryError) {
+            console.error('Error querying app versions:', versionQueryError);
+          } else {
+            // Calculate the new version number (current max + 1 or 1 if no versions exist)
+            const nextVersionNumber = versionData && versionData.length > 0 ? 
+              versionData[0].version_number + 1 : 1;
+              
+            // Get demo URL from either root level or latestVersion
+            const demoUrl = result.demo || result.latestVersion?.demoUrl || null;
+            
+            // Insert new version record
+            const { error: insertError } = await supabase
+              .from('app_versions')
+              .insert({
+                app_id: appData.id,
+                version_id: result.latestVersion.id,
+                version_demo_url: demoUrl,
+                created_by: session.user.id, // Use authenticated user's ID
+                version_number: nextVersionNumber
+              });
+              
+            if (insertError) {
+              console.error('Error inserting app version:', insertError);
+            } else {
+              console.log(`Created new app version ${nextVersionNumber} for app ${appData.id}`);
+              
+              // Update the app's preview_url if available
+              if (demoUrl) {
+                await supabase
+                  .from('apps')
+                  .update({ preview_url: demoUrl })
+                  .eq('id', appData.id);
+              }
+            }
+          }
+        }
       }
     }
 

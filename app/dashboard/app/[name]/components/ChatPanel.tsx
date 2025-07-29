@@ -83,7 +83,7 @@ export const ChatPanel = ({
             ))
           ) : messages.length > 0 ? (
             messages.map((msg) => (
-              <div key={msg.id} className="space-y-2">
+              <div key={msg.id} className="space-y-2 space-x-2 full-width" >
                 <div className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
                   <Avatar className="h-8 w-8 flex-shrink-0">
                     {msg.role === "assistant" ? (
@@ -98,12 +98,12 @@ export const ChatPanel = ({
 
                   <div className={`flex-1 space-y-1 ${msg.role === "user" ? "text-right" : ""}`}>
                     <div
-                      className={`inline-block max-w-[85%] rounded-lg py-2 px-0 text-sm ${
-                        msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"
+                      className={`inline-block rounded-lg py-0 px-0 text-sm ${
+                        msg.role === "user" ? "bg-gray-100 text-black-100 max-w-[80%]" : "bg-white-100 text-gray-900"
                       }`}
                     >
                       {msg.role === "assistant" ? (
-                        <div className="prose prose-sm max-w-none px-2 !mx-0 !my-0 prose-p:my-1 prose-p:!mx-0 prose-headings:mt-2 prose-headings:mb-1 prose-headings:!mx-0 prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:font-semibold prose-code:text-slate-800 prose-code:bg-slate-100 dark:prose-code:text-slate-200 dark:prose-code:bg-slate-700 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:bg-slate-700 dark:prose-pre:text-slate-200 prose-pre:p-2 prose-pre:rounded dark:prose-invert">
+                        <div className="max-w-[100%] prose prose-sm px-2 !mx-0 !my-0 prose-p:my-1 prose-p:!mx-0 prose-headings:mt-2 prose-headings:mb-1 prose-headings:!mx-0 prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:font-semibold prose-code:text-slate-800 prose-code:bg-slate-100 dark:prose-code:text-slate-200 dark:prose-code:bg-slate-700 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:bg-slate-700 dark:prose-pre:text-slate-200 prose-pre:p-2 prose-pre:rounded dark:prose-invert">
                           <ReactMarkdown>
                             {msg.content.includes("</CodeProject>") 
                               ? msg.content.split("</CodeProject>")[1].trim()
@@ -112,12 +112,12 @@ export const ChatPanel = ({
                           </ReactMarkdown>
                         </div>
                       ) : (
-                        <div className="whitespace-pre-wrap px-2">{msg.content}</div>
+                        <div className="whitespace-pre-wrap px-2 full-width">{msg.content}</div>
                       )}
                     </div>
 
                     {msg.thinking && (
-                      <div className="max-w-[85%]">
+                      <div className="max-w-[85%] full-width">
                         <ThinkingSection content={msg.thinking} />
                       </div>
                     )}

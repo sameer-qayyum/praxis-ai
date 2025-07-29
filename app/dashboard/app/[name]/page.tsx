@@ -30,6 +30,10 @@ interface AppData {
   google_sheet: string
   app_url: string
   template_id: string
+  number_of_messages?: number
+  last_synced?: string
+  active_fields_text?: string
+  fields_metadata_json?: string
 }
 
 interface Message {
@@ -61,6 +65,7 @@ const AppPage = () => {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showFileUpload, setShowFileUpload] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([])
+  const [selectedVersion, setSelectedVersion] = useState<string>("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
   const { toast } = useToast()
@@ -71,6 +76,7 @@ const AppPage = () => {
     data: app,
     isLoading: isLoadingApp,
     error: appError,
+    refetch: refetchApp
   } = useQuery({
     queryKey: ["app", name],
     queryFn: async () => {
@@ -109,7 +115,219 @@ const AppPage = () => {
     enabled: !!app?.template_id,
   })
 
-  // Fetch chat messages
+  // Check if app needs generation
+  const [isGenerating, setIsGenerating] = useState(false)
+  // Track whether we've already attempted generation for this app ID
+  const [hasAttemptedGeneration, setHasAttemptedGeneration] = useState(false)
+  
+  // Log app data on first load and trigger chat message fetch if we have a chat_id
+  useEffect(() => {
+    if (app?.id) {
+      console.log('📝 App data loaded on mount:', app.id, { 
+        hasChat: !!app.chat_id, 
+        status: app.status,
+        source: 'initialization effect'
+      });
+      
+      // If we already have a chat_id, explicitly trigger chat message fetch
+      if (app.chat_id) {
+        console.log('💬 App has existing chat_id, triggering message fetch:', app.chat_id);
+        // The query is set to enabled: !!app?.chat_id, so it will auto-fetch
+        // but we can explicitly trigger it to be sure
+        refetchChat();
+      }
+    }
+  }, [app?.id, app?.chat_id])
+
+  // Generate app if it hasn't been generated yet
+  console.log('⚡ Page initial load, app state:', { hasApp: !!app, chatId: app?.chat_id, appStatus: app?.status });
+  const generateAppMutation = useMutation({
+    mutationFn: async () => {
+      console.log('🔥 MUTATION FUNCTION EXECUTING with:', { 
+        appId: app?.id, 
+        hasChatId: !!app?.chat_id, 
+        status: app?.status,
+        isGenerating
+      });
+      
+      // Double-check we have an app without chat_id
+      if (!app?.id) {
+        console.error('No app ID available - cannot generate');
+        throw new Error('No app ID available for generation');
+      }
+      
+      if (app.chat_id) {
+        console.warn('App already has chat_id:', app.chat_id, '- skipping generation');
+        return { success: true, message: 'App already has chat_id, no generation needed' };
+      }
+
+      // States are now set in the calling effect
+      console.log('🔑 Starting app generation sequence for app:', app.id);
+
+      try {
+        // Fetch template data for base prompt
+        const { data: templateData, error: templateError } = await supabase
+          .from("templates")
+          .select("user_prompt")
+          .eq("id", app.template_id)
+          .single()
+        
+          console.log('Fetching Google Sheet connection with ID:', app.google_sheet);
+        const { data: sheetData, error: sheetError } = await supabase
+          .from("google_sheets_connections") // Note: Fixed table name from google_sheet_connections to google_sheets_connections
+          .select("*")
+          .eq("id", app.google_sheet)
+          .single()
+        
+        console.log('Google Sheet connection result:', { data: sheetData, error: sheetError });
+        
+        if (!sheetData || sheetError) {
+          console.error('Failed to fetch sheet data:', { error: sheetError, sheetId: app.google_sheet });
+          throw new Error(`Sheet data not found for ID: ${app.google_sheet}`);
+        }
+        
+          
+        if (templateError) {
+          throw new Error(`Failed to fetch template: ${templateError.message}`)
+        }
+
+        // Create the base prompt using the template's user_prompt
+        const basePrompt = templateData?.user_prompt || 'Create a web application based on the Google Sheet structure provided.'
+        // Create a detailed metadata description for v0
+      const fieldsMetadataJson = JSON.stringify(sheetData.columns_metadata, null, 2);
+        console.log('Building prompt with template:', { basePrompt });
+        
+        // Create a complete prompt with the fields stored in the database
+        const promptBase = `${basePrompt}\n\n
+        ACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${app.active_fields_text || ''}\n\n
+        COMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n
+        This is the complete structure of the Google Sheet with all fields in their original order. For each field:\n
+        - id: Unique identifier for the column\n
+        - name: Column name as shown in the sheet\n
+        - type: Data type (Text, Number, Date, etc.)\n
+        - active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n
+        - options: For fields that have predefined options (like dropdowns)\n
+        - description: Additional information about the field\n
+        - originalIndex: The position of the column in the sheet (0-based)\n\n
+        ${fieldsMetadataJson || ''}\n\n
+        SHEET NAME: ${app.name || 'Sheet1'}\n\n
+        When saving data back to the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null).`;
+        
+        // Get current user ID
+        const { data: userData } = await supabase.auth.getUser()
+        const userId = userData.user?.id
+        
+        if (!userId) {
+          throw new Error('User not authenticated')
+        }
+
+        console.log('⚡⚡ CALLING GENERATE API NOW ⚡⚡ with prompt:', promptBase.substring(0, 100) + '...');
+        
+        // Call the generate API
+        const generateResponse = await fetch('/api/v0/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: promptBase,
+            name: app.name,
+            userId: userId,
+            templateId: app.template_id
+          })
+        })
+
+        if (!generateResponse.ok) {
+          const errorData = await generateResponse.json()
+          throw new Error(errorData.error || 'Failed to generate app')
+        }
+
+        const generateData = await generateResponse.json()
+
+        // Refetch app data to get updated record
+        await refetchApp()
+        return generateData
+      } catch (error) {
+        console.error('Generation API error:', error);
+        // We don't set isGenerating=false here because it's handled in the onError callback
+        throw error; // Re-throw to trigger onError
+      }
+    },
+    // These callbacks are no longer needed since we're handling them in the useEffect
+    // where we call the mutation - keeping for reference
+    onError: (error: any) => {
+      console.error('App generation error:', error);
+      // Toast handling moved to the useEffect
+      console.error("Error generating app:", error)
+    }
+  })
+
+  // CRITICAL: This is the main effect that triggers app generation on first load
+  // It runs once when the component mounts with app data
+  useEffect(() => {
+    // We need this check because the effect might run before app data is available
+    if (!app) {
+      console.log('🚫 App data not yet available, waiting...');
+      return;
+    }
+
+    console.log('🚨 APP GENERATION CHECK:', { 
+      appId: app.id,
+      chatId: app.chat_id,
+      status: app.status,
+      hasGenerated: hasAttemptedGeneration,
+      isPending: isLoadingApp || generateAppMutation.isPending
+    });
+    
+    // Skip if we've already attempted generation or if we're already loading data
+    if (hasAttemptedGeneration || isLoadingApp || generateAppMutation.isPending) {
+      console.log('⏭️ Already attempted generation or operation in progress, skipping');
+      return;
+    }
+
+    // Mark that we've attempted generation to prevent further attempts
+    setHasAttemptedGeneration(true);
+    
+    // If we have an app without chat_id, generate it
+    if (app.id && !app.chat_id) {
+      console.log('🔥 TRIGGERING APP GENERATION FOR:', app.id);
+      
+      // Set UI state
+      setIsGenerating(true);
+      
+      // Show toast with unique ID so we can dismiss it later
+      const toastId = toast.loading("Generating your app with V0...");
+      
+      // Call the mutation directly
+      generateAppMutation.mutate(undefined, {
+        onSuccess: (data) => {
+          console.log('✨ Generation successful:', data);
+          toast.dismiss(toastId);
+          toast.success("App successfully generated!");
+          
+          // Force refetch to get the updated app with chat_id
+          refetchApp().then(() => {
+            // Once the app is refreshed, also fetch chat messages
+            console.log('📢 Generation complete, now fetching chat messages');
+            // Small timeout to ensure app data is updated first
+            setTimeout(() => refetchChat(), 500);
+          });
+        },
+        onError: (error) => {
+          console.error('❌ Generation failed:', error);
+          toast.dismiss(toastId);
+          toast.error("Failed to generate app. Please try again.");
+          setIsGenerating(false);
+        }
+      });
+    } else {
+      console.log('✅ App already has chat_id or not ready for generation');
+    }
+  }, [app?.id, app?.chat_id]); // Only depend on critical app properties
+  
+  // Fetch chat messages when we have a chat_id
+  // When coming from the wizard flow with a freshly generated chat, this will run after generation
+  // When coming to an existing app page, this will run on load
   const {
     data: chatData,
     isLoading: isLoadingChat,
@@ -117,20 +335,31 @@ const AppPage = () => {
   } = useQuery({
     queryKey: ["chat", app?.chat_id],
     queryFn: async () => {
-      if (!app?.chat_id) return null
+      console.log('📬 Fetching chat messages for chat_id:', app?.chat_id);
+      if (!app?.chat_id) {
+        console.error('No chat_id available - this should not happen due to enabled property');
+        return [];
+      }
 
-      const response = await fetch(`/api/v0/messages?chatId=${app.chat_id}`, {
-        method: "POST",
+      // Use the getchat API route which uses v0.chats.getById
+      const response = await fetch(`/api/v0/getchat?chatId=${app.chat_id}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json"
+        }
       })
 
       if (!response.ok) {
-        throw new Error("Failed to fetch chat messages")
+        const errorData = await response.json();
+        console.error("Failed to fetch chat messages:", errorData);
+        throw new Error(errorData.error || "Failed to fetch chat messages");
       }
 
-      const data = await response.json()
+      const data = await response.json();
+      console.log('💬 Retrieved messages:', data.messages?.length || 0, 'messages');
       return data.messages || []
     },
-    enabled: !!app?.chat_id,
+    enabled: !!app?.chat_id, // Enabled whenever we have a chat_id
   })
 
   // Send message mutation
@@ -186,7 +415,29 @@ const AppPage = () => {
         console.log('Full chat data stored in cache:', data.fullChatData)
       }
       
-      // No need to refetch as we've updated the cache directly
+      // Explicitly refetch chat messages and versions to ensure we get the latest data
+      console.log('🔄 Refreshing messages and versions to get V0 response');
+      setTimeout(() => {
+        // Refresh chat messages
+        refetchChat().then(() => {
+          console.log('✅ Chat messages refreshed after sending');
+        }).catch(err => {
+          console.error('❌ Failed to refresh messages:', err);
+        });
+        
+        // Also invalidate and refetch versions to update the dropdown
+        if (app?.id && app?.chat_id) {
+          console.log('📁 Invalidating versions cache to get latest versions');
+          queryClient.invalidateQueries({
+            queryKey: ["app-versions", app.id, app.chat_id]
+          }).then(() => {
+            console.log('✅ Versions cache invalidated and refetched');
+          }).catch(err => {
+            console.error('❌ Failed to refresh versions:', err);
+          });
+        }
+      }, 1000); // Small delay to ensure V0 has processed the response
+      
       setMessage("")
       setUploadedFiles([])
       setShowFileUpload(false)
@@ -370,6 +621,9 @@ const AppPage = () => {
           messages={messages}
           isDeploying={isDeploying}
           handleDeploy={handleDeploy}
+          isGenerating={isGenerating || generateAppMutation.isPending}
+          selectedVersion={selectedVersion}
+          setSelectedVersion={setSelectedVersion}
         />
       </div>
 

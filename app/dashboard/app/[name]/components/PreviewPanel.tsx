@@ -1,12 +1,33 @@
 import React, { useState, useEffect } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue, 
+} from "@/components/ui/select"
+import { Eye, Code2, RefreshCw, History } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Eye, Code2, RefreshCw, RefreshCcw } from "lucide-react"
+
+interface AppVersion {
+  id: string
+  app_id: string
+  version_id: string
+  version_demo_url: string
+  version_number: number
+  created_at: string
+  created_by: string
+}
 
 interface AppData {
+  id: string
   preview_url: string
+  status?: string
+  chat_id?: string
 }
 
 interface Message {
@@ -34,6 +55,9 @@ interface PreviewPanelProps {
   messages: Message[]
   isDeploying: boolean
   handleDeploy: () => void
+  isGenerating?: boolean
+  selectedVersion?: string
+  setSelectedVersion?: (version: string) => void
 }
 
 export const PreviewPanel = ({
@@ -44,21 +68,113 @@ export const PreviewPanel = ({
   messages,
   isDeploying,
   handleDeploy,
+  isGenerating = false,
+  selectedVersion,
+  setSelectedVersion,
 }: PreviewPanelProps) => {
   // Generate a unique key whenever preview_url changes to force iframe re-render
   const [previewKey, setPreviewKey] = useState(Date.now());
+  const [currentPreviewUrl, setCurrentPreviewUrl] = useState(app?.preview_url || '');
+  const queryClient = useQueryClient();
   
-  // Update the key when preview_url changes
+  // Log app information for debugging
+  useEffect(() => {
+    console.log('[PreviewPanel] App data:', {
+      id: app?.id,
+      previewUrl: app?.preview_url,
+      status: app?.status,
+      fullAppObject: app
+    });
+    
+    if (!app?.id) {
+      console.warn('[PreviewPanel] No app ID available - this will prevent version fetching');
+    }
+  }, [app]);
+  
+  // Fetch versions for this app - only when app has a chat_id
+  const { data: versionsData } = useQuery({
+    queryKey: ["app-versions", app?.id, app?.chat_id],
+    queryFn: async () => {
+      if (!app?.id || !app?.chat_id) {
+        console.log('[PreviewPanel] Missing app ID or chat_id, skipping versions fetch:', { appId: app?.id, chatId: app?.chat_id });
+        return { versions: [] };
+      }
+      
+      console.log('[PreviewPanel] Fetching versions for app ID:', app.id, 'with chat_id:', app.chat_id);
+      const response = await fetch(`/api/v0/versions?appId=${app.id}`);
+      
+      if (!response.ok) {
+        console.error('[PreviewPanel] Failed to fetch versions:', response.status, response.statusText);
+        throw new Error("Failed to fetch app versions");
+      }
+      
+      const data = await response.json();
+      console.log('[PreviewPanel] Versions response:', data);
+      return data;
+    },
+    enabled: !!app?.id && !!app?.chat_id, // Only enable when both app.id and app.chat_id exist
+  });
+  
+  // Get the versions array from the response
+  const versions = versionsData?.versions || [];
+  useEffect(() => {
+    console.log('[PreviewPanel] Versions available:', versions.length, 'Active tab:', activeTab);
+    
+    if (versions.length === 0) {
+      console.log('[PreviewPanel] No versions found. Make sure app_versions table has records with this app_id');
+    }
+  }, [versions.length, activeTab]);
+  
+  // Function to manually refresh the iframe
+  const handleRefresh = () => {
+    setPreviewKey(Date.now());
+  };
+  
+  // Function to handle version selection
+  const handleVersionChange = (versionId: string) => {
+    if (setSelectedVersion) {
+      setSelectedVersion(versionId);
+      
+      // Find the version and update the preview URL
+      const selectedVersionData = versions.find((v: AppVersion) => v.version_id === versionId);
+      if (selectedVersionData?.version_demo_url) {
+        setCurrentPreviewUrl(selectedVersionData.version_demo_url);
+        setPreviewKey(Date.now()); // Force iframe refresh
+      }
+    }
+  };
+
+  // Force iframe refresh when preview_url changes
   useEffect(() => {
     if (app?.preview_url) {
       setPreviewKey(Date.now());
+      setCurrentPreviewUrl(app.preview_url);
       console.log('Preview URL changed, refreshing iframe:', app.preview_url);
     }
   }, [app?.preview_url]);
+  
+  // Auto-select newest version when versions change
+  useEffect(() => {
+    console.log('[PreviewPanel] Versions changed, count:', versions.length);
+    
+    if (versions.length > 0 && setSelectedVersion) {
+      // Get the newest version (first in the array since it's ordered by version_number DESC)
+      const newestVersion = versions[0];
+      console.log('[PreviewPanel] Auto-selecting newest version:', {
+        versionId: newestVersion.version_id,
+        versionNumber: newestVersion.version_number,
+        demoUrl: newestVersion.version_demo_url
+      });
+      
+      setSelectedVersion(newestVersion.version_id);
+      setCurrentPreviewUrl(newestVersion.version_demo_url);
+      setPreviewKey(Date.now());
+    }
+  }, [versions.length, setSelectedVersion]);
   return (
     <div className={`flex flex-col bg-gray-50 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <div className="border-b bg-white px-4 py-3">
+        <div className="border-b bg-white px-4 py-3 flex justify-between items-center">
           <TabsList className="grid w-[200px] grid-cols-2">
             <TabsTrigger value="preview" className="text-xs">
               <Eye className="mr-1 h-3 w-3" />
@@ -69,10 +185,50 @@ export const PreviewPanel = ({
               Code
             </TabsTrigger>
           </TabsList>
+          
+          {/* Version selector dropdown */}
+          {activeTab === 'preview' && versions.length > 0 ? (
+            <div className="flex items-center space-x-2">
+              <div className="text-xs text-gray-500 flex items-center">
+                <History className="mr-1 h-3 w-3" />
+                Version:
+              </div>
+              <Select 
+                value={selectedVersion} 
+                onValueChange={handleVersionChange}
+              >
+                <SelectTrigger className="h-8 w-[120px]">
+                  <SelectValue placeholder="Select version" />
+                </SelectTrigger>
+                <SelectContent>
+                  {versions.map((version: AppVersion) => (
+                    <SelectItem 
+                      key={version.version_id} 
+                      value={version.version_id}
+                    >
+                      {`Version ${version.version_number}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
         </div>
 
         <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative">
-          {app.preview_url ? (
+          {isGenerating || app.status === 'pending' ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center p-8">
+                <div className="w-16 h-16 bg-blue-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
+                  <RefreshCw className="h-8 w-8 text-blue-500 animate-spin" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Generating Your App</h3>
+                <p className="text-sm text-gray-500 mb-4 max-w-sm">
+                  We're creating your application based on the selected Google Sheet fields. This may take a minute...
+                </p>
+              </div>
+            </div>
+          ) : app.preview_url ? (
             <div className="w-full h-full">
               {/* Refresh button in top-right corner */}
               <Button 
@@ -82,11 +238,11 @@ export const PreviewPanel = ({
                 onClick={() => setPreviewKey(Date.now())}
                 title="Refresh preview"
               >
-                <RefreshCcw className="h-4 w-4" />
+                <RefreshCw className="h-4 w-4" />
               </Button>
               <iframe
                 key={previewKey} // Use dynamic key from state to force re-render
-                src={`${app.preview_url}?timestamp=${previewKey}`} // Use same timestamp for consistency
+                src={`${currentPreviewUrl}?timestamp=${previewKey}`} // Use same timestamp for consistency
                 title="App Preview"
                 className="w-full h-full border-0 bg-white"
                 style={{ height: "100%", overflow: "hidden" }}

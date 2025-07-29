@@ -164,48 +164,37 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         throw new Error('User not authenticated');
       }
       
-      // 4. Call the v0/generate API to create a chat and project
-      // Pass the user ID for RLS policy compliance
-      const generateResponse = await fetch('/api/v0/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: promptBase,
-          name: appName,
-          userId: userId,
-          templateId: templateId
-        })
-      });
-      
-      if (!generateResponse.ok) {
-        const errorData = await generateResponse.json();
-        throw new Error(`Failed to generate app: ${errorData.error || generateResponse.statusText}`);
-      }
-      
-      const generateData = await generateResponse.json();
-      
-      
-      // Note: We don't need to create a record in the apps table here
-      // because the API now creates it with all required fields including userId
-      
-      // Get the app data that was created by the API
+      // 4. Create a minimal app record in the database (without chat_id yet)
       const { data: appData, error: appError } = await supabase
         .from('apps')
-        .select('id')
-        .eq('chat_id', generateData.chatId)
+        .insert({
+          name: appName, 
+          template_id: templateId,
+          created_by: userId,
+          status: 'pending', // Mark as pending generation
+          // Store the sheet name and specific prompt details in metadata columns
+          google_sheet: connectionData.id,
+          updated_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          number_of_messages: 1
+          
+        })
+        .select('id') // Get the created app's ID
         .single();
-      
-      if (appError || !appData) {
-        throw new Error(`Failed to create app record: ${appError?.message || 'Unknown error'}`);
+
+      if (appError) {
+        throw appError;
       }
+
+      // Clear the loading toast and show success
+      toast.dismiss();
+      toast.success("App setup initiated! Generating your app...");
       
-      // Success! Show toast and redirect to the app page
-      toast.success('App created successfully!');
-      
-      // Redirect to the app page
-      window.location.href = `/dashboard/app/${appData.id}`;
+      // Redirect to the app page, which will handle the generation
+      // In WizardContainer.tsx, at the end of handleFinish:
+      setTimeout(() => {
+        window.location.href = `/dashboard/app/${appData.id}`;
+      }, 1000); // 1 second delay
     } catch (error) {
       toast.error('An error occurred while creating the app');
     } finally {

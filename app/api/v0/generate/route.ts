@@ -57,23 +57,54 @@ export async function POST(request: NextRequest) {
       // Create a new chat with the v0 SDK
       const chat = await v0.chats.create({ message });
       
-      if (chat.id && chat.projectId) {
+      if (chat.id) {
         // Store the chat and project reference in the database with the user ID to satisfy RLS
-        const { error: dbError } = await supabase
+        console.log('Updating apps table with userId:', userId);
+        const { data: appData, error: dbError } = await supabase
           .from('apps')
-          .insert({
+          .upsert({
             chat_id: chat.id,
-            v0_project_id: chat.projectId,
-            name: name || 'V0 Generated App',
-            created_by: userId,
+            name: name || 'Praxis AI App',
             status: 'generated',
-            template_id: templateId,
-            preview_url:chat.demo
-          });
+            preview_url: chat.demo,
+            created_by: userId, // Add userId to satisfy RLS policy
+            updated_by: userId  // Add userId to satisfy RLS policy
+          })
+          .select('id')
+          .single();
         
         if (dbError) {
           console.error('Error storing v0 project reference:', dbError);
           // Continue even if database storage fails
+        }
+        
+        // Insert into app_versions table
+        // Get version ID from latestVersion
+        let versionId = null;
+        let versionDemoUrl = chat.demo || null;
+        
+        if (chat.latestVersion) {
+          versionId = chat.latestVersion.id || null;
+          // Use latestVersion.demoUrl if available
+          versionDemoUrl = chat.latestVersion.demoUrl || versionDemoUrl;
+        }
+        
+        if (appData && versionId) {
+          // Insert into app_versions table
+          const { error: versionError } = await supabase
+            .from('app_versions')
+            .insert({
+              app_id: appData.id,
+              version_id: versionId,
+              created_by: userId,
+              version_demo_url: versionDemoUrl,
+              version_number: 1 // First version
+            });
+          
+          if (versionError) {
+            console.error('Error storing version reference:', versionError);
+            // Continue even if version storage fails
+          }
         }
       }
     

@@ -59,7 +59,7 @@ export default async function CreateWizardPage({ params }: PageProps) {
   
   // Track template usage
   const { error: usageError } = await supabase
-    .rpc('increment_template_app_count', { template_id: id })
+    .rpc('increment_template_app_count', { template_id: template.id })
   
   if (usageError) {
     console.error('Error incrementing template usage count:', usageError)
