@@ -7,40 +7,73 @@ export async function POST(
   { params }: { params: { sheetId: string } }
 ) {
   try {
-    // Create Supabase client
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
+    // Check if this is an internal service call with service role key
+    const serviceRoleKey = request.headers.get('x-supabase-service-role-key');
+    const providedUserId = request.headers.get('x-user-id');
+    let userId: string;
+    
+    // Create appropriate Supabase client based on authentication method
+    let supabase;
+    
+    if (serviceRoleKey && serviceRoleKey === process.env.SUPABASE_SERVICE_ROLE_KEY && providedUserId) {
+      // Service role authentication for internal API calls
+      const emptyStore = await cookies(); // Empty cookie store for service role client
+      supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return emptyStore.get(name)?.value;
+            },
+            set(name: string, value: string, options) {
+              // No-op for service role client
+            },
+            remove(name: string, options) {
+              // No-op for service role client
+            },
           },
-          set(name: string, value: string, options) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          },
-        },
-      }
-    );
-
-    // Check if user is authenticated
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      return NextResponse.json(
-        { error: "Unauthorized: Please login first" },
-        { status: 401 }
+        }
       );
+      userId = providedUserId;
+    } else {
+      // Standard user authentication via session cookies
+      const cookieStore = await cookies();
+      supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return cookieStore.get(name)?.value;
+            },
+            set(name: string, value: string, options) {
+              cookieStore.set(name, value, options);
+            },
+            remove(name: string, options) {
+              cookieStore.set(name, '', { ...options, maxAge: 0 });
+            },
+          },
+        }
+      );
+      
+      // Check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return NextResponse.json(
+          { error: "Unauthorized: Please login first" },
+          { status: 401 }
+        );
+      }
+      
+      userId = session.user.id;
     }
 
     // Get user's Google OAuth token
     const { data: credentials, error: credentialsError } = await supabase
       .from("oauth_credentials")
       .select("access_token, refresh_token, expires_at")
-      .eq("user_id", session.user.id)
+      .eq("user_id", userId)
       .eq("provider", "google_sheets")
       .single();
 
@@ -71,7 +104,7 @@ export async function POST(
               'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
             },
             body: JSON.stringify({
-              userId: session.user.id,
+              userId: userId,
               refreshToken: credentials.refresh_token
             })
           }
@@ -122,7 +155,7 @@ export async function POST(
       .from('google_sheets_connections')
       .select('columns_metadata')
       .eq('sheet_id', sheetId)
-      .eq('user_id', session.user.id)
+      .eq('user_id', userId)
       .single();
     
     if (sheetError || !sheetConnection) {

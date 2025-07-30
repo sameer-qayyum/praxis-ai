@@ -6,6 +6,7 @@ import { notFound, useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/components/ui/use-toast"
+import { FormSubmissionUrl } from "@/components/dashboard/FormSubmissionUrl";
 
 // Import our custom components
 import { AppHeader } from "./components/AppHeader"
@@ -34,6 +35,7 @@ interface AppData {
   last_synced?: string
   active_fields_text?: string
   fields_metadata_json?: string
+  path_secret?: string
 }
 
 interface Message {
@@ -165,14 +167,14 @@ const AppPage = () => {
       console.log('🔑 Starting app generation sequence for app:', app.id);
 
       try {
-        // Fetch template data for base prompt
+        // 3. Get the template's base prompt and API access requirements
         const { data: templateData, error: templateError } = await supabase
-          .from("templates")
-          .select("user_prompt")
-          .eq("id", app.template_id)
-          .single()
+          .from('templates')
+          .select('user_prompt, sheet_api_access, base_prompt')
+          .eq('id', app.template_id)
+          .single();
         
-          console.log('Fetching Google Sheet connection with ID:', app.google_sheet);
+        console.log('Fetching Google Sheet connection with ID:', app.google_sheet);
         const { data: sheetData, error: sheetError } = await supabase
           .from("google_sheets_connections") // Note: Fixed table name from google_sheet_connections to google_sheets_connections
           .select("*")
@@ -186,32 +188,86 @@ const AppPage = () => {
           throw new Error(`Sheet data not found for ID: ${app.google_sheet}`);
         }
         
-          
         if (templateError) {
           throw new Error(`Failed to fetch template: ${templateError.message}`)
         }
 
         // Create the base prompt using the template's user_prompt
-        const basePrompt = templateData?.user_prompt || 'Create a web application based on the Google Sheet structure provided.'
+        const basePrompt = templateData?.base_prompt || 'Create a web application based on the Google Sheet structure provided.'
         // Create a detailed metadata description for v0
-      const fieldsMetadataJson = JSON.stringify(sheetData.columns_metadata, null, 2);
-        console.log('Building prompt with template:', { basePrompt });
+        const fieldsMetadataJson = JSON.stringify(sheetData.columns_metadata, null, 2);
         
         // Create a complete prompt with the fields stored in the database
-        const promptBase = `${basePrompt}\n\n
-        ACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${app.active_fields_text || ''}\n\n
-        COMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n
-        This is the complete structure of the Google Sheet with all fields in their original order. For each field:\n
-        - id: Unique identifier for the column\n
-        - name: Column name as shown in the sheet\n
-        - type: Data type (Text, Number, Date, etc.)\n
-        - active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n
-        - options: For fields that have predefined options (like dropdowns)\n
-        - description: Additional information about the field\n
-        - originalIndex: The position of the column in the sheet (0-based)\n\n
-        ${fieldsMetadataJson || ''}\n\n
-        SHEET NAME: ${app.name || 'Sheet1'}\n\n
-        When saving data back to the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null).`;
+        // Start with the common parts of the prompt
+        let promptBase = `${basePrompt}
+
+
+        ACTIVE FIELDS (TO BE DISPLAYED IN THE UI):
+${app.active_fields_text || ''}
+
+
+        COMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):
+
+        This is the complete structure of the Google Sheet with all fields in their original order. For each field:
+
+        - id: Unique identifier for the column
+
+        - name: Column name as shown in the sheet
+
+        - type: Data type (Text, Number, Date, etc.)
+
+        - active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.
+
+        - options: For fields that have predefined options (like dropdowns)
+
+        - description: Additional information about the field
+
+        - originalIndex: The position of the column in the sheet (0-based)
+
+
+        ${fieldsMetadataJson || ''}
+
+
+        SHEET NAME: ${app.name || 'Sheet1'}`;
+        
+        // Add API instructions based on template requirements
+        const apiAccess = templateData?.sheet_api_access || 'write_only';
+        
+        // Add write access instructions if needed
+        if (apiAccess === 'write_only' || apiAccess === 'read_write') {
+          promptBase += `
+
+
+        SECURE FORM SUBMISSION API:
+
+        To submit form data to the Google Sheet, use this secure endpoint:
+
+        POST https://${window.location.host}/api/public/forms/${app.id}/${app.path_secret}/submit
+
+
+        The path_secret will be automatically generated for your app. When this app is viewed by the public, the full URL including the secret path will be provided. Send form data as JSON in the request body, with field names matching the Google Sheet column names. Rate limits apply (100 submissions per hour per app).`;
+        }
+        
+        // Add read access instructions if needed
+        if (apiAccess === 'read_only' || apiAccess === 'read_write') {
+          promptBase += `
+
+
+        SECURE DATA RETRIEVAL API:
+
+        To read data from the Google Sheet, use this secure endpoint:
+
+        GET https://${window.location.host}/api/public/forms/${app.id}/${app.path_secret}/data
+
+
+        This endpoint returns the sheet data as JSON. You can filter rows by adding query parameters that match column names, e.g. ?name=John&status=active. Rate limits apply (100 requests per hour per app).`;
+        }
+        
+        // Add final instructions about column handling
+        promptBase += `
+
+
+        When interacting with the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null when writing).`;
         
         // Get current user ID
         const { data: userData } = await supabase.auth.getUser()
@@ -221,7 +277,7 @@ const AppPage = () => {
           throw new Error('User not authenticated')
         }
 
-        console.log('⚡⚡ CALLING GENERATE API NOW ⚡⚡ with prompt:', promptBase.substring(0, 100) + '...');
+        console.log('⚡⚡ CALLING GENERATE API NOW ⚡⚡');
         
         // Call the generate API
         const generateResponse = await fetch('/api/v0/generate', {
@@ -233,7 +289,8 @@ const AppPage = () => {
             message: promptBase,
             name: app.name,
             userId: userId,
-            templateId: app.template_id
+            templateId: app.template_id,
+            appId: app.id  // Pass the existing app ID to update instead of creating a new record
           })
         })
 
@@ -591,6 +648,12 @@ const AppPage = () => {
           className={`border-r bg-white relative ${isFullscreen ? 'hidden' : 'block'}`}
           style={{ width: isFullscreen ? '0' : '30%', height: 'calc(100vh - 64px)' }}
         >
+          {/* Form Submission URL - only show when app is deployed */}
+          {app?.status === "deployed" && app?.id && (
+            <div className="px-4 pt-4">
+              <FormSubmissionUrl appId={app.id} />
+            </div>
+          )}
           <ChatPanel 
             isFullscreen={isFullscreen}
             isLoadingChat={isLoadingChat}

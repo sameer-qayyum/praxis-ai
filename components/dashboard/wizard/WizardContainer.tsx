@@ -11,6 +11,7 @@ import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import type { ColumnSyncResult } from "@/context/GoogleSheetsContext"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
+import crypto from "crypto"
 
 interface WizardContainerProps {
   title: string
@@ -116,7 +117,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       // 3. Get the template's base prompt and build the complete prompt
       const { data: templateData, error: templateError } = await supabase
         .from('templates')
-        .select('base_prompt')
+        .select('id, base_prompt')
         .eq('id', templateId)
         .single();
       
@@ -126,35 +127,6 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       
       const appName = `${connectionName} App`;
       
-      // Format all fields and their metadata for the prompt
-      // First, sort fields by their original index to maintain sheet structure
-      const sortedFields = [...columnsMetadata].sort((a, b) => a.originalIndex - b.originalIndex);
-      
-      // Create a detailed metadata description for v0
-      const fieldsMetadataJson = JSON.stringify(sortedFields, null, 2);
-      
-      // Create a more human-readable version focused on active fields
-      const activeFieldsText = activeColumnsMetadata
-        .map(field => `${field.name} (${field.type})${field.description ? ': ' + field.description : ''}${field.options?.length > 0 ? ' | Options: ' + field.options.join(', ') : ''}`)
-        .join('\n');
-      
-      // Use template base_prompt if available, otherwise use a default
-      const basePrompt = templateData?.base_prompt || `Create a responsive Next.js app for a ${title}`;
-      
-      // Create a complete prompt with clear instructions about the metadata
-      const promptBase = `${basePrompt}\n\n
-      ACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText}\n\n
-      COMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n
-      This is the complete structure of the Google Sheet with all fields in their original order. For each field:\n
-      - id: Unique identifier for the column\n
-      - name: Column name as shown in the sheet\n
-      - type: Data type (Text, Number, Date, etc.)\n
-      - active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n
-      - options: For fields that have predefined options (like dropdowns)\n
-      - description: Additional information about the field\n
-      - originalIndex: The position of the column in the sheet (0-based)\n\n
-      ${fieldsMetadataJson}\n\n
-      When saving data back to the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null).`;
       
       // Get the current user's ID for RLS policy compliance
       const { data: userData } = await supabase.auth.getUser();
@@ -164,22 +136,25 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         throw new Error('User not authenticated');
       }
       
+      // Generate a secure random path_secret (32 character hex string)
+      const pathSecret = crypto.randomBytes(16).toString('hex');
+      
       // 4. Create a minimal app record in the database (without chat_id yet)
       const { data: appData, error: appError } = await supabase
         .from('apps')
         .insert({
           name: appName, 
-          template_id: templateId,
+          template_id: templateData?.id,
           created_by: userId,
           status: 'pending', // Mark as pending generation
           // Store the sheet name and specific prompt details in metadata columns
           google_sheet: connectionData.id,
           updated_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
-          number_of_messages: 1
-          
+          number_of_messages: 1,
+          path_secret: pathSecret // Set the generated path_secret
         })
-        .select('id') // Get the created app's ID
+        .select('id, path_secret') // Get the created app's ID and path_secret
         .single();
 
       if (appError) {

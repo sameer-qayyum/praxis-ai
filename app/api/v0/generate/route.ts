@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { message, name, userId, templateId } = body;
+    const { message, name, userId, templateId, appId } = body;
     
     // Make sure we have a userId to satisfy RLS policies
     if (!userId) {
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use the v0 SDK to create a new chat
-    console.log('DEBUG - Making API request to V0 with message:', message);
+    console.log('DEBUG - Making API request to V0 with message:');
     
     try {
       // Create a new chat with the v0 SDK
@@ -59,19 +59,55 @@ export async function POST(request: NextRequest) {
       
       if (chat.id) {
         // Store the chat and project reference in the database with the user ID to satisfy RLS
-        console.log('Updating apps table with userId:', userId);
-        const { data: appData, error: dbError } = await supabase
-          .from('apps')
-          .upsert({
+        console.log('Updating apps table with userId:', userId, 'appId:', appId);
+        
+        let appData, dbError;
+        
+        if (appId) {
+          // If we have an appId, use direct update to modify the existing record
+          console.log('Using direct update for existing app ID:', appId);
+          
+          const updateData = {
+            chat_id: chat.id,
+            status: 'generated',
+            preview_url: chat.demo,
+            updated_by: userId,
+            updated_at: new Date().toISOString()
+          };
+          
+          // Update the existing record
+          const result = await supabase
+            .from('apps')
+            .update(updateData)
+            .eq('id', appId)
+            .select('id')
+            .single();
+            
+          appData = result.data;
+          dbError = result.error;
+        } else {
+          // For new apps, we need to insert a new record
+          console.log('No appId provided, creating new app record');
+          
+          const insertData = {
             chat_id: chat.id,
             name: name || 'Praxis AI App',
             status: 'generated',
             preview_url: chat.demo,
-            created_by: userId, // Add userId to satisfy RLS policy
-            updated_by: userId  // Add userId to satisfy RLS policy
-          })
-          .select('id')
-          .single();
+            created_by: userId,
+            updated_by: userId
+          };
+          
+          // Insert a new record
+          const result = await supabase
+            .from('apps')
+            .insert(insertData)
+            .select('id')
+            .single();
+            
+          appData = result.data;
+          dbError = result.error;
+        }
         
         if (dbError) {
           console.error('Error storing v0 project reference:', dbError);

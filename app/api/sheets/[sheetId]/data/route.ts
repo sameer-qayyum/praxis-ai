@@ -19,40 +19,66 @@ export async function GET(
   { params }: { params: { sheetId: string } }
 ) {
   try {
-    // Create Supabase client
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
+    // Check for service role authentication from internal API calls
+    const providedUserId = request.headers.get('x-user-id');
+    const serviceRoleKey = request.headers.get('x-supabase-service-role-key');
+    
+    let supabase;
+    let userId;
+    
+    // Create appropriate Supabase client based on authentication type
+    if (serviceRoleKey && serviceRoleKey === process.env.SUPABASE_SERVICE_ROLE_KEY && providedUserId) {
+      // Use service role client for internal API calls
+      supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        {
+          cookies: {
+            get(name: string) { return undefined; },
+            set(name: string, value: string, options) {},
+            remove(name: string, options) {},
           },
-          set(name: string, value: string, options) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          },
-        },
-      }
-    );
-
-    // Check if user is authenticated
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      return NextResponse.json(
-        { error: "Unauthorized: Please login first" },
-        { status: 401 }
+        }
       );
+      userId = providedUserId;
+    } else {
+      // Standard user authentication via cookies for dashboard requests
+      const cookieStore = await cookies();
+      supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return cookieStore.get(name)?.value;
+            },
+            set(name: string, value: string, options) {
+              cookieStore.set(name, value, options);
+            },
+            remove(name: string, options) {
+              cookieStore.set(name, '', { ...options, maxAge: 0 });
+            },
+          },
+        }
+      );
+      
+      // Check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return NextResponse.json(
+          { error: "Unauthorized: Please login first" },
+          { status: 401 }
+        );
+      }
+      
+      userId = session.user.id;
     }
 
     // Get user's Google OAuth token
     const { data: credentials, error: credentialsError } = await supabase
       .from("oauth_credentials")
       .select("access_token, refresh_token, expires_at")
-      .eq("user_id", session.user.id)
+      .eq("user_id", userId)
       .eq("provider", "google_sheets")
       .single();
 
@@ -83,7 +109,7 @@ export async function GET(
               'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
             },
             body: JSON.stringify({
-              userId: session.user.id,
+              userId: userId,
               refreshToken: credentials.refresh_token
             })
           }
@@ -155,18 +181,18 @@ export async function GET(
     // Determine if we need metadata for column mapping
     const includeMetadata = url.searchParams.get('includeMetadata') === 'true';
     
-    // Get sheet metadata if available (for column info)
-    const { data: sheetConnection, error: sheetError } = await supabase
+    // Get connection metadata to ensure user has access
+    const { data: connectionData, error: connectionError } = await supabase
       .from('google_sheets_connections')
-      .select('columns_metadata')
-      .eq('sheet_id', sheetId)
-      .eq('user_id', session.user.id)
+      .select('id, name, spreadsheet_id, user_id, sheet_name, columns_metadata')
+      .eq('id', sheetId)
+      .eq('user_id', userId)
       .single();
 
     // If metadata is requested but not available, we'll proceed without it
-    let columnMetadata: any[] = [];
-    if (includeMetadata && !sheetError && sheetConnection?.columns_metadata) {
-      columnMetadata = sheetConnection.columns_metadata;
+    let columnMetadata = null;
+    if (includeMetadata && !connectionError && connectionData?.columns_metadata) {
+      columnMetadata = connectionData.columns_metadata;
     }
 
     // Convert a 1-based column index to Excel-style column letters
