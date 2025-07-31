@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { corsHeaders, handleCorsPreflightRequest } from '@/utils/cors';
 
 // Simple rate limiting implementation that can be replaced with Redis in production
 const rateLimits = new Map<string, { count: number, reset: number }>();
@@ -33,11 +34,22 @@ function checkRateLimit(identifier: string, limit: number, windowSeconds: number
   };
 }
 
-// Defining the handler with the exact Next.js expected signature
-export const POST = async (
+// Handle OPTIONS requests for CORS preflight
+export async function OPTIONS(request: Request) {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
+// Handler for form submissions
+export async function POST(
   request: Request,
   { params }: { params: { appId: string; pathSecret: string } }
-) => {
+) {
+  // Check if this is a preflight request
+  const preflightResponse = handleCorsPreflightRequest(request);
+  if (preflightResponse) return preflightResponse;
   try {
     const { appId, pathSecret } = params;
     
@@ -53,6 +65,7 @@ export const POST = async (
         { 
           status: 429,
           headers: {
+            ...corsHeaders,
             'X-RateLimit-Limit': '100',
             'X-RateLimit-Remaining': rateLimit.remaining.toString(),
             'X-RateLimit-Reset': rateLimit.reset.toString()
@@ -79,7 +92,7 @@ export const POST = async (
       console.log('Invalid app or secret:', { appId, error: appError });
       return NextResponse.json(
         { error: "Form not found or unauthorized" },
-        { status: 403 }
+        { status: 403, headers: corsHeaders }
       );
     }
     
@@ -94,7 +107,7 @@ export const POST = async (
       console.error('Sheet connection not found:', sheetError);
       return NextResponse.json(
         { error: "Unable to process submission at this time" },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
     
@@ -105,7 +118,7 @@ export const POST = async (
     if (!formData || typeof formData !== 'object') {
       return NextResponse.json(
         { error: "Invalid form data" },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     
@@ -135,7 +148,7 @@ export const POST = async (
       
       return NextResponse.json(
         { error: appendResult.error || "Failed to submit form data" },
-        { status: appendResponse.status }
+        { status: appendResponse.status, headers: corsHeaders }
       );
     }
     
@@ -144,14 +157,14 @@ export const POST = async (
     return NextResponse.json({
       success: true,
       message: "Form submitted successfully",
-    });
+    }, { headers: corsHeaders });
     
   } catch (error: any) {
     console.error("Error in public form submit API:", error);
     
     return NextResponse.json(
       { error: "Unable to process submission at this time" },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }

@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
-import { createClient as createServerClient } from "@supabase/supabase-js";
+import { corsHeaders, handleCorsPreflightRequest } from "@/utils/cors";
 
 // In-memory store for rate limiting - would be replaced with Redis in production
 const requestCounts: Map<string, { count: number; resetTime: number }> = new Map();
 const RATE_LIMIT = 100; // Requests per hour per app
 const RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour in milliseconds
 
+// Handle OPTIONS requests for CORS preflight
+export async function OPTIONS(request: NextRequest) {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
 // Defining the handler with the exact Next.js expected signature
-export const GET = async (
+export async function GET(
   request: NextRequest,
   { params }: { params: { appId: string; pathSecret: string } }
-) => {
+) {
+  // Check if this is a preflight request
+  const preflightResponse = handleCorsPreflightRequest(request);
+  if (preflightResponse) return preflightResponse;
+
   const { appId, pathSecret } = params;
   const { searchParams } = new URL(request.url);
   
@@ -30,7 +41,7 @@ export const GET = async (
       if (rateData.count >= RATE_LIMIT) {
         return NextResponse.json(
           { error: "Rate limit exceeded. Try again later." },
-          { status: 429 }
+          { status: 429, headers: corsHeaders }
         );
       }
       requestCounts.set(key, { count: rateData.count + 1, resetTime: rateData.resetTime });
@@ -57,12 +68,12 @@ export const GET = async (
     
     if (appError || !app) {
       console.error("Error fetching app:", appError);
-      return NextResponse.json({ error: "App not found" }, { status: 404 });
+      return NextResponse.json({ error: "App not found" }, { status: 404, headers: corsHeaders });
     }
     
     if (app.path_secret !== pathSecret) {
       console.error("Invalid path secret provided");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
     
     // 3. Get the associated Google Sheet and user ID
@@ -72,7 +83,7 @@ export const GET = async (
     if (!sheetId) {
       return NextResponse.json(
         { error: "No Google Sheet associated with this app" },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     
@@ -101,20 +112,20 @@ export const GET = async (
       console.error("Error fetching sheet data:", errorData);
       return NextResponse.json(
         { error: "Failed to fetch sheet data" },
-        { status: response.status }
+        { status: response.status, headers: corsHeaders }
       );
     }
     
     const sheetData = await response.json();
     
     // 5. Return the filtered data
-    return NextResponse.json(sheetData);
+    return NextResponse.json(sheetData, { headers: corsHeaders });
     
   } catch (error) {
     console.error("Error in data retrieval API:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
