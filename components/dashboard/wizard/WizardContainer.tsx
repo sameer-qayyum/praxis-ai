@@ -77,15 +77,20 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       // Also create a filtered version for app generation purposes
       const activeColumnsMetadata = columnsMetadata.filter(field => field.active);
         
-      // Use sheet name as connection name
+      // Use sheet name as connection name and set default sheet tab name
       const connectionName = selectedSheet.name;
       const connectionDescription = `App created from ${selectedSheet.name} sheet with ${activeColumnsMetadata.length} active fields out of ${columnsMetadata.length} total`;
+      
+      // Default sheet tab name - in Google Sheets, the first tab is usually named "Sheet1"
+      // This will be the default if we can't get the actual tab name
+      const sheetTabName = selectedSheet.activeSheetName || "Sheet1";
       
       // 1. Save the Google Sheet connection to get the connection ID
       const sheetConnectionResult = await saveSheetConnection(
         connectionName,
         connectionDescription,
-        columnsMetadata
+        columnsMetadata,
+        sheetTabName
       );
       
       if (!sheetConnectionResult) {

@@ -8,6 +8,7 @@ interface GoogleSheet {
   name: string
   lastModified: string
   url: string
+  activeSheetName?: string // The name of the active sheet/tab
 }
 
 interface SheetPagination {
@@ -81,7 +82,7 @@ interface GoogleSheetsContextType {
   refreshSheets: () => Promise<GoogleSheet[]>;
   createSheet: (name: string) => Promise<GoogleSheet | null>;
   getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
-  saveSheetConnection: (name: string, description: string, columnsMetadata: any[]) => Promise<boolean>;
+  saveSheetConnection: (connectionName: string, description: string, columnsMetadata: any[], sheetTabName?: string) => Promise<boolean>;
   writeSheetColumns: (sheetId: string, columns: any[]) => Promise<boolean>;
   getSheetConnection: (sheetId: string) => Promise<any | null>;
   checkSheetColumnChanges: (sheetId: string) => Promise<ColumnSyncResult | null>;
@@ -493,15 +494,20 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
 
   // Save sheet connection to google_sheets_connections table
   const saveSheetConnection = async (
-    name: string,
+    connectionName: string,
     description: string,
-    columnsMetadata: any[]
+    columnsMetadata: any[],
+    sheetTabName?: string // Added parameter for the specific sheet tab name
   ): Promise<boolean> => {
     
     if (!selectedSheet?.id) {
       console.error("❌ No sheet selected")
       return false
     }
+    
+    // If no specific sheet tab name provided, try to get it from the selectedSheet
+    // or default to 'Sheet1' which is the default name in Google Sheets
+    const actualSheetTabName = sheetTabName || selectedSheet.activeSheetName || 'Sheet1'
 
     try {
       // Get current user
@@ -537,8 +543,8 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         const { data, error } = await supabase
           .from('google_sheets_connections')
           .update({
-            name,
-            sheet_name: selectedSheet.name,
+            name: connectionName, // Connection name provided by user
+            sheet_name: actualSheetTabName, // Name of the specific sheet/tab
             description,
             updated_at: new Date().toISOString(),
             columns_metadata: columnsMetadata
@@ -558,9 +564,9 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           .from('google_sheets_connections')
           .insert({
             user_id: session.user.id,
-            name,
+            name: connectionName, // Connection name provided by user
             sheet_id: selectedSheet.id,
-            sheet_name: selectedSheet.name,
+            sheet_name: actualSheetTabName, // Name of the specific sheet/tab
             description,
             columns_metadata: columnsMetadata
           })

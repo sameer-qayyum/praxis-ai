@@ -4,16 +4,23 @@
 // These won't affect the actual Supabase deployment
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2';
+// Define types for cache items
+interface CacheItem {
+  data: any;
+  timestamp: number;
+}
+
 // In-memory cache with 5-minute TTL
-const cache = new Map();
+const cache = new Map<string, CacheItem>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 const MAX_PAGE_SIZE = 100; // Maximum number of items per page
 const DEFAULT_PAGE_SIZE = 20; // Default page size if not specified
+
 // Cache helper functions
-function getCachedResponse(key) {
+function getCachedResponse(key: string): any | null {
   if (!cache.has(key)) return null;
   // We know the key exists because we checked with cache.has
-  const cachedItem = cache.get(key); // Non-null assertion is safe here
+  const cachedItem = cache.get(key)!; // Non-null assertion is safe here
   const now = Date.now();
   // Check if cache is expired
   if (now - cachedItem.timestamp > CACHE_TTL) {
@@ -22,7 +29,8 @@ function getCachedResponse(key) {
   }
   return cachedItem.data;
 }
-function setCachedResponse(key, data) {
+
+function setCachedResponse(key: string, data: any): void {
   // Limit cache size to prevent memory issues (store max 100 responses)
   if (cache.size >= 100) {
     // Clear the oldest entries or expired entries
@@ -174,12 +182,79 @@ Deno.serve(async (req)=>{
       fileCount: data.files?.length || 0
     });
     // Transform the Google API response into our expected format
-    const sheets = (data.files || []).map((file)=>({
-        id: file.id,
-        name: file.name,
-        lastModified: file.modifiedTime || new Date().toISOString(),
-        url: file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}`
-      }));
+    const fileList = data.files || [];
+    
+    // Define interface for Google Drive file response
+    interface GoogleDriveFile {
+      id: string;
+      name: string;
+      modifiedTime?: string;
+      webViewLink?: string;
+    }
+    
+    // Fetch sheet metadata for each file to get tab names
+    // We'll use Promise.all to fetch them in parallel but limit to avoid rate limits
+    const sheetPromises = fileList.map(async (file: GoogleDriveFile) => {
+      try {
+        // Fetch spreadsheet metadata to get sheet names
+        const sheetResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${file.id}?fields=sheets.properties(sheetId,title)`,
+          {
+            headers: {
+              Authorization: `Bearer ${credentials.access_token}`,
+              Accept: 'application/json'
+            }
+          }
+        );
+        
+        if (sheetResponse.ok) {
+          const sheetData = await sheetResponse.json();
+          const sheets = sheetData.sheets || [];
+          
+          // Get the first sheet as the active sheet (default behavior in Google Sheets)
+          const activeSheetName = sheets.length > 0 ? sheets[0].properties.title : 'Sheet1';
+          
+          // Get all sheet names for possible future use
+          const sheetTabs = sheets.map((sheet: { properties: { sheetId: number; title: string } }) => ({
+            id: sheet.properties.sheetId,
+            name: sheet.properties.title
+          }));
+          
+          return {
+            id: file.id,
+            name: file.name,
+            lastModified: file.modifiedTime || new Date().toISOString(),
+            url: file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}`,
+            activeSheetName,  // Include the name of the first sheet (typically the active one)
+            sheetTabs         // Include all sheet tabs in the spreadsheet
+          };
+        } else {
+          // If we can't get sheet info, return basic file info
+          console.error(`Failed to get sheet tabs for file ${file.id}: ${sheetResponse.status}`);
+          return {
+            id: file.id,
+            name: file.name,
+            lastModified: file.modifiedTime || new Date().toISOString(),
+            url: file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}`,
+            activeSheetName: 'Sheet1',  // Default
+            sheetTabs: [{ id: 0, name: 'Sheet1' }]  // Default
+          };
+        }
+      } catch (error) {
+        console.error(`Error fetching sheet tabs for ${file.id}:`, error);
+        return {
+          id: file.id,
+          name: file.name,
+          lastModified: file.modifiedTime || new Date().toISOString(),
+          url: file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}`,
+          activeSheetName: 'Sheet1',  // Default
+          sheetTabs: [{ id: 0, name: 'Sheet1' }]  // Default
+        };
+      }
+    });
+    
+    const sheets = await Promise.all(sheetPromises);
+    
     // Prepare the response object with pagination info
     const result = {
       success: true,
@@ -191,8 +266,10 @@ Deno.serve(async (req)=>{
         pageSize
       }
     };
+    
     // Cache the result for future requests
     setCachedResponse(cacheKey, result);
+    
     // Return the list of sheets
     return new Response(JSON.stringify(result), {
       status: 200,
