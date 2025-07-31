@@ -184,10 +184,12 @@ export async function GET(
     // Get connection metadata to ensure user has access
     const { data: connectionData, error: connectionError } = await supabase
       .from('google_sheets_connections')
-      .select('id, name, sheet_id, user_id, sheet_name, columns_metadata')
-      .eq('id', sheetId)
+      .select('*') // Get all fields for debugging
+      .eq('sheet_id', sheetId)
       .eq('user_id', userId)
       .single();
+      
+    console.log('Sheet connection data:', JSON.stringify(connectionData, null, 2));
 
     // If metadata is requested but not available, we'll proceed without it
     let columnMetadata = null;
@@ -249,18 +251,21 @@ export async function GET(
         totalPages: 0
       });
     }
-    
     // Get the last column letter for the range
     const lastColumn = columnToLetter(headers.length);
     
     // For small datasets, get all data at once; for large ones, paginate
-    // First, get sheet properties to determine total rows
+    // Fetch sheet properties to get row count and other metadata
+    const spreadsheetId = connectionData.spreadsheet_id || connectionData.sheet_id;
+    console.log('Using spreadsheet ID for API call:', spreadsheetId);
+    
     const sheetPropsResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
       {
+        method: 'GET',
         headers: {
-          Authorization: `Bearer ${credentials.access_token}`,
-          Accept: 'application/json'
+          'Authorization': `Bearer ${credentials.access_token}`,
+          'Accept': 'application/json'
         }
       }
     );
@@ -293,12 +298,22 @@ export async function GET(
     
     // Now fetch the actual data for the requested page
     const range = `A${startRow}:${lastColumn}${endRow}`;
+    // Encode the sheet name for the API call
+    const encodedSheetName = encodeURIComponent(connectionData.sheet_name);
+    
+    console.log('Fetching sheet data with params:', {
+      spreadsheetId,
+      sheetName: connectionData.sheet_name,
+      encodedSheetName,
+      range
+    });
+    
     const dataResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}!${range}?majorDimension=ROWS`,
       {
         headers: {
-          Authorization: `Bearer ${credentials.access_token}`,
-          Accept: 'application/json'
+          'Authorization': `Bearer ${credentials.access_token}`,
+          'Accept': 'application/json'
         }
       }
     );

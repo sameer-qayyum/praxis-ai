@@ -171,10 +171,13 @@ export async function POST(
     // Get information about the sheet to validate ownership and get spreadsheet ID
     const { data: sheetData, error: sheetError } = await supabase
       .from("google_sheets_connections")
-      .select("sheet_id, sheet_name, columns_metadata")
+      .select("*") // Select all fields for debugging
       .eq("sheet_id", params.sheetId)
       .eq("user_id", userId)
       .single();
+
+    console.log('Sheet data from DB:', JSON.stringify(sheetData, null, 2));
+    console.log('Sheet error:', sheetError);
 
     if (sheetError || !sheetData) {
       return NextResponse.json(
@@ -182,6 +185,11 @@ export async function POST(
         { status: 404, headers: corsHeaders }
       );
     }
+    
+    // Log all available fields for debugging
+    console.log('Available sheet fields:', Object.keys(sheetData));
+    console.log('Spreadsheet ID:', sheetData.spreadsheet_id);
+    console.log('Sheet name:', sheetData.sheet_name);
     
     // Process form data for Google Sheets format
     // Convert the object to an array for Google Sheets API format
@@ -193,15 +201,25 @@ export async function POST(
     
     console.log('Appending data to sheet:', {
       sheetId: params.sheetId,
-      spreadsheetId: sheetData.sheet_id,
+      spreadsheetId: sheetData.spreadsheet_id || sheetData.sheet_id,
       sheetName: sheetData.sheet_name,
       values: valueArray
     });
     
+    // Encode the sheet name to handle special characters
+    const encodedSheetName = encodeURIComponent(sheetData.sheet_name);
+    
     // Append data to the Google Sheet
     try {
+      // Use the spreadsheet_id field which is the actual Google Sheets ID
+      // Add the encoded sheet name to the URL
+      console.log('Making API call to Google Sheets with URL params:', {
+        spreadsheetId: sheetData.spreadsheet_id || sheetData.sheet_id,
+        encodedSheetName
+      });
+      
       const appendResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${sheetData.sheet_name}!A:Z:append?valueInputOption=USER_ENTERED`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id || sheetData.sheet_id}/values/${encodedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
         {
           method: 'POST',
           headers: {
