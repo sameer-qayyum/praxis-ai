@@ -75,7 +75,6 @@ export const PreviewPanel = ({
   // Generate a unique key whenever preview_url changes to force iframe re-render
   const [previewKey, setPreviewKey] = useState(Date.now());
   const [currentPreviewUrl, setCurrentPreviewUrl] = useState(app?.preview_url || '');
-  const queryClient = useQueryClient();
   
   // Log app information for debugging
   useEffect(() => {
@@ -125,10 +124,7 @@ export const PreviewPanel = ({
     }
   }, [versions.length, activeTab]);
   
-  // Function to manually refresh the iframe
-  const handleRefresh = () => {
-    setPreviewKey(Date.now());
-  };
+  // Refresh functionality is now handled directly inline where needed
   
   // Function to handle version selection
   const handleVersionChange = (versionId: string) => {
@@ -170,7 +166,7 @@ export const PreviewPanel = ({
       setCurrentPreviewUrl(newestVersion.version_demo_url);
       setPreviewKey(Date.now());
     }
-  }, [versions.length, setSelectedVersion]);
+  }, [versions, versions.length, setSelectedVersion]);
   return (
     <div className={`flex flex-col bg-gray-50 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
@@ -224,7 +220,7 @@ export const PreviewPanel = ({
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Generating Your App</h3>
                 <p className="text-sm text-gray-500 mb-4 max-w-sm">
-                  We're creating your application based on the selected Google Sheet fields. This may take a minute...
+                  We&apos;re creating your application based on the selected Google Sheet fields. This may take a minute...
                 </p>
               </div>
             </div>

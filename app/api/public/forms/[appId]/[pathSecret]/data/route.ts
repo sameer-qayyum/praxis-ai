@@ -8,10 +8,11 @@ const requestCounts: Map<string, { count: number; resetTime: number }> = new Map
 const RATE_LIMIT = 100; // Requests per hour per app
 const RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour in milliseconds
 
-export async function GET(
+// Defining the handler with the exact Next.js expected signature
+export const GET = async (
   request: NextRequest,
   { params }: { params: { appId: string; pathSecret: string } }
-) {
+) => {
   const { appId, pathSecret } = params;
   const { searchParams } = new URL(request.url);
   

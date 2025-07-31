@@ -311,7 +311,7 @@ export async function GET(
     }
     
     const rawData = await dataResponse.json();
-    let rows = rawData.values || [];
+    const rows = rawData.values || [];
     
     // Convert rows to array of objects with header names as keys
     const data = rows.map((row: any[]) => {

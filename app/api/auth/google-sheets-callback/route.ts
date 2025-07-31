@@ -72,6 +72,7 @@ export async function GET(request: Request) {
     const tokens = await response.json()
 
     // Store tokens in Supabase using the store_oauth_token function in the secure schema
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { data: storedToken, error: storeError } = await supabase.rpc(
       "store_oauth_token",
       {

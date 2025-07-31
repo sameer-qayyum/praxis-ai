@@ -242,7 +242,7 @@ ${app.active_fields_text || ''}
 
         To submit form data to the Google Sheet, use this secure endpoint:
 
-        POST https://${window.location.host}/api/public/forms/${app.id}/${app.path_secret}/submit
+        POST ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/submit
 
 
         The path_secret will be automatically generated for your app. When this app is viewed by the public, the full URL including the secret path will be provided. Send form data as JSON in the request body, with field names matching the Google Sheet column names. Rate limits apply (100 submissions per hour per app).`;
@@ -257,7 +257,7 @@ ${app.active_fields_text || ''}
 
         To read data from the Google Sheet, use this secure endpoint:
 
-        GET https://${window.location.host}/api/public/forms/${app.id}/${app.path_secret}/data
+        GET ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/data
 
 
         This endpoint returns the sheet data as JSON. You can filter rows by adding query parameters that match column names, e.g. ?name=John&status=active. Rate limits apply (100 requests per hour per app).`;

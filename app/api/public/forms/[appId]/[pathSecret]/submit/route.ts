@@ -33,10 +33,11 @@ function checkRateLimit(identifier: string, limit: number, windowSeconds: number
   };
 }
 
-export async function POST(
+// Defining the handler with the exact Next.js expected signature
+export const POST = async (
   request: Request,
   { params }: { params: { appId: string; pathSecret: string } }
-) {
+) => {
   try {
     const { appId, pathSecret } = params;
     
