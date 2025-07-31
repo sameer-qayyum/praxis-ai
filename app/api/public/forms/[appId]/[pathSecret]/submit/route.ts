@@ -123,10 +123,13 @@ export async function POST(
     }
     
     // Instead of duplicating the Google Sheets API logic, use the existing append API
-    // This ensures we're using the same token refresh, validation, and append logic
-    const appendResponse = await fetch(
-      `${request.headers.get('origin') || process.env.NEXT_PUBLIC_BASE_URL}/api/sheets/${sheetId}/append`,
-      {
+    // Ensures using the same token refresh, validation, and append logic
+    // Use absolute URL with environment variable to avoid origin issues
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const appendUrl = `${baseUrl}/api/sheets/${sheetId}/append`;
+    
+    try {
+      const appendResponse = await fetch(appendUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -137,28 +140,44 @@ export async function POST(
         body: JSON.stringify({
           data: formData
         })
-      }
-    );
-
-    const appendResult = await appendResponse.json();
-    
-    if (!appendResponse.ok) {
-      console.error('Append API error:', appendResult);
+      });
       
+      // Check if we received a valid JSON response
+      const contentType = appendResponse.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        // Not JSON, likely HTML - handle error
+        const textResponse = await appendResponse.text();
+        console.error('Non-JSON response from sheets API:', textResponse.substring(0, 200) + '...');
+        return NextResponse.json(
+          { error: 'Internal server error processing form submission' },
+          { status: 500, headers: corsHeaders }
+        );
+      }
+      
+      const appendResult = await appendResponse.json();
+      
+      if (!appendResponse.ok) {
+        console.error('Append API error:', appendResult);
+        
+        return NextResponse.json(
+          { error: appendResult.error || "Failed to submit form data" },
+          { status: appendResponse.status, headers: corsHeaders }
+        );
+      }
+      
+      // Return success response
+      return NextResponse.json({
+        success: true,
+        message: "Form submitted successfully",
+      }, { headers: corsHeaders });
+    } catch (error) {
+      console.error("Error calling sheets API:", error);
       
       return NextResponse.json(
-        { error: appendResult.error || "Failed to submit form data" },
-        { status: appendResponse.status, headers: corsHeaders }
+        { error: "Unable to process submission at this time" },
+        { status: 500, headers: corsHeaders }
       );
     }
-    
-
-    // Return success response
-    return NextResponse.json({
-      success: true,
-      message: "Form submitted successfully",
-    }, { headers: corsHeaders });
-    
   } catch (error: any) {
     console.error("Error in public form submit API:", error);
     
