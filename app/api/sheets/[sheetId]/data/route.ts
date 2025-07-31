@@ -184,7 +184,7 @@ export async function GET(
     // Get connection metadata to ensure user has access
     const { data: connectionData, error: connectionError } = await supabase
       .from('google_sheets_connections')
-      .select('id, name, spreadsheet_id, user_id, sheet_name, columns_metadata')
+      .select('id, name, sheet_id, user_id, sheet_name, columns_metadata')
       .eq('id', sheetId)
       .eq('user_id', userId)
       .single();

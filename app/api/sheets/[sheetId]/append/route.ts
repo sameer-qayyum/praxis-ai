@@ -171,7 +171,7 @@ export async function POST(
     // Get information about the sheet to validate ownership and get spreadsheet ID
     const { data: sheetData, error: sheetError } = await supabase
       .from("google_sheets_connections")
-      .select("spreadsheet_id, sheet_name, columns_metadata")
+      .select("sheet_id, sheet_name, columns_metadata")
       .eq("sheet_id", params.sheetId)
       .eq("user_id", userId)
       .single();
@@ -193,7 +193,7 @@ export async function POST(
     
     console.log('Appending data to sheet:', {
       sheetId: params.sheetId,
-      spreadsheetId: sheetData.spreadsheet_id,
+      spreadsheetId: sheetData.sheet_id,
       sheetName: sheetData.sheet_name,
       values: valueArray
     });
@@ -201,7 +201,7 @@ export async function POST(
     // Append data to the Google Sheet
     try {
       const appendResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id}/values/${sheetData.sheet_name}!A:Z:append?valueInputOption=USER_ENTERED`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${sheetData.sheet_name}!A:Z:append?valueInputOption=USER_ENTERED`,
         {
           method: 'POST',
           headers: {
