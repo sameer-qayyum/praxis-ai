@@ -215,8 +215,16 @@ export async function GET(
     const endRow = startRow + pageSize - 1;
     
     // First, get the headers to determine column count and names
+    const spreadsheetId = connectionData.spreadsheet_id || connectionData.sheet_id;
+    console.log('Using spreadsheet ID for API call:', spreadsheetId);
+    
+    // For sheet names with special characters like spaces or hyphens, we need to use single quotes
+    const formattedSheetName = `'${connectionData.sheet_name.replace(/'/g, "''")}'`;
+    console.log('Using formatted sheet name for API calls:', formattedSheetName);
+    
+    // Get headers from the first row
     const headersResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:ZZ1`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${formattedSheetName}!A1:ZZ1`,
       {
         headers: {
           Authorization: `Bearer ${credentials.access_token}`,
@@ -256,8 +264,7 @@ export async function GET(
     
     // For small datasets, get all data at once; for large ones, paginate
     // Fetch sheet properties to get row count and other metadata
-    const spreadsheetId = connectionData.spreadsheet_id || connectionData.sheet_id;
-    console.log('Using spreadsheet ID for API call:', spreadsheetId);
+  
     
     const sheetPropsResponse = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
@@ -298,18 +305,16 @@ export async function GET(
     
     // Now fetch the actual data for the requested page
     const range = `A${startRow}:${lastColumn}${endRow}`;
-    // Encode the sheet name for the API call
-    const encodedSheetName = encodeURIComponent(connectionData.sheet_name);
     
     console.log('Fetching sheet data with params:', {
       spreadsheetId,
       sheetName: connectionData.sheet_name,
-      encodedSheetName,
+      formattedSheetName,
       range
     });
     
     const dataResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}!${range}?majorDimension=ROWS`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${formattedSheetName}!${range}?majorDimension=ROWS`,
       {
         headers: {
           'Authorization': `Bearer ${credentials.access_token}`,
