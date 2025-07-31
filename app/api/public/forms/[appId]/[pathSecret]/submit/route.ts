@@ -125,7 +125,13 @@ export async function POST(
     // Instead of duplicating the Google Sheets API logic, use the existing append API
     // Ensures using the same token refresh, validation, and append logic
     // Use absolute URL with environment variable to avoid origin issues
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    let baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    
+    // Ensure baseUrl has protocol
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = `https://${baseUrl}`;
+    }
+    
     const appendUrl = `${baseUrl}/api/sheets/${sheetId}/append`;
     
     try {
