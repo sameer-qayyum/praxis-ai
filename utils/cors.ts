@@ -2,8 +2,9 @@
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Supabase-Service-Role-Key',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Supabase-Service-Role-Key, X-Requested-With',
   'Access-Control-Max-Age': '86400', // 24 hours in seconds
+  'Access-Control-Allow-Credentials': 'true', // Allow credentials (cookies)
 };
 
 // Helper function to handle OPTIONS preflight requests
