@@ -141,16 +141,8 @@ const AppPage = () => {
     }
   }, [app?.id, app?.chat_id])
 
-  // Generate app if it hasn't been generated yet
-  console.log('⚡ Page initial load, app state:', { hasApp: !!app, chatId: app?.chat_id, appStatus: app?.status });
   const generateAppMutation = useMutation({
     mutationFn: async () => {
-      console.log('🔥 MUTATION FUNCTION EXECUTING with:', { 
-        appId: app?.id, 
-        hasChatId: !!app?.chat_id, 
-        status: app?.status,
-        isGenerating
-      });
       
       // Double-check we have an app without chat_id
       if (!app?.id) {
@@ -162,10 +154,6 @@ const AppPage = () => {
         console.warn('App already has chat_id:', app.chat_id, '- skipping generation');
         return { success: true, message: 'App already has chat_id, no generation needed' };
       }
-
-      // States are now set in the calling effect
-      console.log('🔑 Starting app generation sequence for app:', app.id);
-
       try {
         // 3. Get the template's base prompt and API access requirements
         const { data: templateData, error: templateError } = await supabase
@@ -173,15 +161,11 @@ const AppPage = () => {
           .select('user_prompt, sheet_api_access, base_prompt')
           .eq('id', app.template_id)
           .single();
-        
-        console.log('Fetching Google Sheet connection with ID:', app.google_sheet);
         const { data: sheetData, error: sheetError } = await supabase
           .from("google_sheets_connections") // Note: Fixed table name from google_sheet_connections to google_sheets_connections
           .select("*")
           .eq("id", app.google_sheet)
           .single()
-        
-        console.log('Google Sheet connection result:', { data: sheetData, error: sheetError });
         
         if (!sheetData || sheetError) {
           console.error('Failed to fetch sheet data:', { error: sheetError, sheetId: app.google_sheet });
@@ -327,14 +311,6 @@ ${app.active_fields_text || ''}
       console.log('🚫 App data not yet available, waiting...');
       return;
     }
-
-    console.log('🚨 APP GENERATION CHECK:', { 
-      appId: app.id,
-      chatId: app.chat_id,
-      status: app.status,
-      hasGenerated: hasAttemptedGeneration,
-      isPending: isLoadingApp || generateAppMutation.isPending
-    });
     
     // Skip if we've already attempted generation or if we're already loading data
     if (hasAttemptedGeneration || isLoadingApp || generateAppMutation.isPending) {
@@ -347,7 +323,6 @@ ${app.active_fields_text || ''}
     
     // If we have an app without chat_id, generate it
     if (app.id && !app.chat_id) {
-      console.log('🔥 TRIGGERING APP GENERATION FOR:', app.id);
       
       // Set UI state
       setIsGenerating(true);
@@ -358,14 +333,12 @@ ${app.active_fields_text || ''}
       // Call the mutation directly
       generateAppMutation.mutate(undefined, {
         onSuccess: (data) => {
-          console.log('✨ Generation successful:', data);
           toast.dismiss(toastId);
           toast.success("App successfully generated!");
           
           // Force refetch to get the updated app with chat_id
           refetchApp().then(() => {
             // Once the app is refreshed, also fetch chat messages
-            console.log('📢 Generation complete, now fetching chat messages');
             // Small timeout to ensure app data is updated first
             setTimeout(() => refetchChat(), 500);
           });
@@ -413,7 +386,6 @@ ${app.active_fields_text || ''}
       }
 
       const data = await response.json();
-      console.log('💬 Retrieved messages:', data.messages?.length || 0, 'messages');
       return data.messages || []
     },
     enabled: !!app?.chat_id, // Enabled whenever we have a chat_id
@@ -471,9 +443,6 @@ ${app.active_fields_text || ''}
         
         console.log('Full chat data stored in cache:', data.fullChatData)
       }
-      
-      // Explicitly refetch chat messages and versions to ensure we get the latest data
-      console.log('🔄 Refreshing messages and versions to get V0 response');
       setTimeout(() => {
         // Refresh chat messages
         refetchChat().then(() => {
@@ -558,7 +527,6 @@ ${app.active_fields_text || ''}
           
           // Update the app data in the React Query cache
           queryClient.setQueryData(["app", name], updatedApp);
-          console.log('Updated preview URL in useEffect:', demoUrl);
         }
       }
       
@@ -631,7 +599,7 @@ ${app.active_fields_text || ''}
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white relative">
+    <div className="h-[calc(100vh-56px)] flex flex-col bg-white dark:bg-slate-900 relative overflow-hidden">
       {/* Header row - auto height */}
       <AppHeader 
         app={app}
@@ -645,8 +613,8 @@ ${app.active_fields_text || ''}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat Panel - with relative positioning to contain the input */}
         <div
-          className={`border-r bg-white relative ${isFullscreen ? 'hidden' : 'block'}`}
-          style={{ width: isFullscreen ? '0' : '30%', height: 'calc(100vh - 64px)' }}
+          className={`border-r bg-white dark:bg-slate-900 relative ${isFullscreen ? 'hidden' : 'block'}`}
+          style={{ width: isFullscreen ? '0' : '30%', height: '100%' }}
         >
           {/* Form Submission URL - only show when app is deployed */}
           {app?.status === "deployed" && app?.id && (
@@ -695,7 +663,7 @@ ${app.active_fields_text || ''}
         <div 
           className="fixed bg-white dark:bg-slate-900 shadow-sm z-30 rounded-lg border border-gray-100 dark:border-gray-800" 
           style={{ 
-            bottom: '100px', /* Reduced space to match UI in screenshot */
+            bottom: '16px', /* Minimal space at bottom */
             left: 'calc(70px + 16px)', /* Accounts for collapsed sidebar width + margin */
             width: 'calc(30% - 40px)', /* Account for margins on both sides */
             maxWidth: 'calc(30% - 40px)',

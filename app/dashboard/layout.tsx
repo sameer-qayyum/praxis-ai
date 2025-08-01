@@ -1,3 +1,4 @@
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
@@ -6,6 +7,8 @@ import { UserDropdown } from "@/components/dashboard/user-dropdown";
 import { FeedbackButton } from "@/components/dashboard/feedback-button";
 import { GoogleSheetsClientProvider } from "@/components/providers/GoogleSheetsClientProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
+// We don't need these imports anymore as we're using client components to handle hiding the footer
+// import { cookies } from "next/headers";
 
 export default async function DashboardLayout({
   children,
@@ -20,6 +23,10 @@ export default async function DashboardLayout({
   if (!session) {
     redirect("/");
   }
+  
+  // Create a client component wrapper that will detect app routes
+  // We'll use the pathname provided by the client to determine if we're in an app route
+  // This way we can conditionally render the footer
 
   return (
     <QueryProvider>
@@ -57,7 +64,7 @@ export default async function DashboardLayout({
           </GoogleSheetsClientProvider>
         </main>
 
-        {/* Footer */}
+        {/* Footer - we'll handle hiding this in app/dashboard/app/layout.tsx */}
         <footer className="py-3 bg-white dark:bg-slate-900 mx-4 mb-4 rounded-lg text-center text-sm text-muted-foreground">
           <div className="flex justify-center items-center gap-6">
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>

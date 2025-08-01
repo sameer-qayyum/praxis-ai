@@ -113,4 +113,9 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* Hide footer on app pages */
+  body.hide-dashboard-footer footer {
+    display: none;
+  }
 }

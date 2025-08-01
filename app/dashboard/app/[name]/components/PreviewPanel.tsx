@@ -168,9 +168,9 @@ export const PreviewPanel = ({
     }
   }, [versions, versions.length, setSelectedVersion]);
   return (
-    <div className={`flex flex-col bg-gray-50 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <div className="border-b bg-white px-4 py-3 flex justify-between items-center">
+    <div className={`flex flex-col bg-gray-50 dark:bg-slate-900 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col overflow-hidden">
+        <div className="border-b bg-white dark:bg-slate-800 px-4 py-2 flex justify-between items-center">
           <TabsList className="grid w-[200px] grid-cols-2">
             <TabsTrigger value="preview" className="text-xs">
               <Eye className="mr-1 h-3 w-3" />
@@ -187,7 +187,7 @@ export const PreviewPanel = ({
             <div className="flex items-center space-x-2">
               <div className="text-xs text-gray-500 flex items-center">
                 <History className="mr-1 h-3 w-3" />
-                Version:
+               
               </div>
               <Select 
                 value={selectedVersion} 
@@ -214,13 +214,13 @@ export const PreviewPanel = ({
         <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative">
           {isGenerating || app.status === 'pending' ? (
             <div className="h-full flex items-center justify-center">
-              <div className="text-center p-8">
-                <div className="w-16 h-16 bg-blue-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
-                  <RefreshCw className="h-8 w-8 text-blue-500 animate-spin" />
+              <div className="text-center p-4">
+                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg mx-auto mb-3 flex items-center justify-center">
+                  <RefreshCw className="h-6 w-6 text-blue-500 dark:text-blue-300 animate-spin" />
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Generating Your App</h3>
-                <p className="text-sm text-gray-500 mb-4 max-w-sm">
-                  We&apos;re creating your application based on the selected Google Sheet fields. This may take a minute...
+                <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-1">Generating Your App</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 max-w-sm">
+                  We&apos;re creating your application based on the Google Sheet fields...
                 </p>
               </div>
             </div>
@@ -246,14 +246,14 @@ export const PreviewPanel = ({
             </div>
           ) : (
             <div className="h-full flex items-center justify-center">
-              <div className="text-center p-8">
-                <div className="w-16 h-16 bg-gray-200 rounded-lg mx-auto mb-4 flex items-center justify-center">
-                  <Eye className="h-8 w-8 text-gray-400" />
+              <div className="text-center p-4">
+                <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-lg mx-auto mb-2 flex items-center justify-center">
+                  <Eye className="h-6 w-6 text-gray-400 dark:text-gray-300" />
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No preview available</h3>
-                <p className="text-sm text-gray-500 mb-4 max-w-sm">Deploy your app to see a live preview here</p>
-                <Button onClick={handleDeploy} disabled={isDeploying}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isDeploying ? "animate-spin" : ""}`} />
+                <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-1">No preview available</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Deploy your app to see a preview</p>
+                <Button onClick={handleDeploy} disabled={isDeploying} size="sm">
+                  <RefreshCw className={`mr-2 h-3 w-3 ${isDeploying ? "animate-spin" : ""}`} />
                   Deploy App
                 </Button>
               </div>
