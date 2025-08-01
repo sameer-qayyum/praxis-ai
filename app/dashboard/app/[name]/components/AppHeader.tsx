@@ -29,11 +29,6 @@ export const AppHeader = ({
         <Badge variant={app.app_url ? "default" : "secondary"} className="text-xs">
           {app.app_url ? "Deployed" : "Not Deployed"}
         </Badge>
-        {app.google_sheet && (
-          <Badge variant="outline" className="text-xs">
-            Google Sheet
-          </Badge>
-        )}
       </div>
 
       <div className="flex items-center gap-2">

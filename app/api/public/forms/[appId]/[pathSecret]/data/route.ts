@@ -65,6 +65,12 @@ export async function GET(
       .select("id, created_by, google_sheet, path_secret")
       .eq("id", appId)
       .single();
+
+      const { data: googleSheet, error: googleSheetError } = await supabase
+      .from("google_sheets_connections")
+      .select("id, sheet_id, sheet_name")
+      .eq("id", app?.google_sheet)
+      .single();
     
     if (appError || !app) {
       console.error("Error fetching app:", appError);
@@ -78,7 +84,7 @@ export async function GET(
     
     // 3. Get the associated Google Sheet and user ID
     const userId = app.created_by;
-    const sheetId = app.google_sheet;
+    const sheetId = googleSheet?.sheet_id;
     
     if (!sheetId) {
       return NextResponse.json(
@@ -88,7 +94,11 @@ export async function GET(
     }
     
     // 4. Fetch sheet data from the Google Sheet
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
+    let baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    // Ensure baseUrl has protocol
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        baseUrl = `https://${baseUrl}`;
+      }
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
     
     // Build filter query string from searchParams

@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue, 
 } from "@/components/ui/select"
-import { Eye, Code2, RefreshCw, History } from "lucide-react"
+import { Eye, Code2, RefreshCw, History, Database } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -177,8 +177,8 @@ export const PreviewPanel = ({
               Preview
             </TabsTrigger>
             <TabsTrigger value="code" className="text-xs">
-              <Code2 className="mr-1 h-3 w-3" />
-              Code
+              <Database className="mr-1 h-3 w-3" />
+              Google Sheet
             </TabsTrigger>
           </TabsList>
           

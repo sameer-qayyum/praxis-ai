@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr'; 
 import { cookies } from 'next/headers';
+import { corsHeaders, handleCorsPreflightRequest } from '@/utils/cors';
 
 // Type definitions
 interface SheetRow {
@@ -14,10 +15,21 @@ interface ColumnMetadata {
   sampleData: string[];
 }
 
+// Handle OPTIONS requests for CORS preflight
+export async function OPTIONS(request: Request) {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { sheetId: string } }
 ) {
+  // Check if this is a preflight request
+  const preflightResponse = handleCorsPreflightRequest(request);
+  if (preflightResponse) return preflightResponse;
   try {
     // Check for service role authentication from internal API calls
     const providedUserId = request.headers.get('x-user-id');
@@ -67,7 +79,7 @@ export async function GET(
       if (!session) {
         return NextResponse.json(
           { error: "Unauthorized: Please login first" },
-          { status: 401 }
+          { status: 401, headers: corsHeaders }
         );
       }
       
@@ -89,7 +101,7 @@ export async function GET(
           details: credentialsError?.message || "No access token found",
           action: "reconnect" 
         },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -124,7 +136,7 @@ export async function GET(
               details: refreshResult.error || "Unknown error",
               action: "reconnect"
             },
-            { status: 401 }
+            { status: 401, headers: corsHeaders }
           );
         }
         
@@ -138,7 +150,7 @@ export async function GET(
             details: "Error during refresh process",
             action: "reconnect"
           },
-          { status: 401 }
+          { status: 401, headers: corsHeaders }
         );
       }
     }
@@ -189,7 +201,6 @@ export async function GET(
       .eq('user_id', userId)
       .single();
       
-    console.log('Sheet connection data:', JSON.stringify(connectionData, null, 2));
 
     // If metadata is requested but not available, we'll proceed without it
     let columnMetadata = null;
@@ -216,11 +227,9 @@ export async function GET(
     
     // First, get the headers to determine column count and names
     const spreadsheetId = connectionData.spreadsheet_id || connectionData.sheet_id;
-    console.log('Using spreadsheet ID for API call:', spreadsheetId);
     
     // For sheet names with special characters like spaces or hyphens, we need to use single quotes
     const formattedSheetName = `'${connectionData.sheet_name.replace(/'/g, "''")}'`;
-    console.log('Using formatted sheet name for API calls:', formattedSheetName);
     
     // Get headers from the first row
     const headersResponse = await fetch(
@@ -241,7 +250,7 @@ export async function GET(
           status: headersResponse.status,
           details: errorData.error?.message || "Google Sheets API error" 
         },
-        { status: headersResponse.status }
+        { status: headersResponse.status, headers: corsHeaders }
       );
     }
 
@@ -257,7 +266,7 @@ export async function GET(
         page,
         pageSize,
         totalPages: 0
-      });
+      }, { headers: corsHeaders });
     }
     // Get the last column letter for the range
     const lastColumn = columnToLetter(headers.length);
@@ -280,7 +289,7 @@ export async function GET(
     if (!sheetPropsResponse.ok) {
       return NextResponse.json(
         { error: "Failed to retrieve sheet properties", status: sheetPropsResponse.status },
-        { status: sheetPropsResponse.status }
+        { status: sheetPropsResponse.status, headers: corsHeaders }
       );
     }
     
@@ -300,18 +309,11 @@ export async function GET(
         page,
         pageSize,
         totalPages
-      });
+      }, { headers: corsHeaders });
     }
     
     // Now fetch the actual data for the requested page
     const range = `A${startRow}:${lastColumn}${endRow}`;
-    
-    console.log('Fetching sheet data with params:', {
-      spreadsheetId,
-      sheetName: connectionData.sheet_name,
-      formattedSheetName,
-      range
-    });
     
     const dataResponse = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${formattedSheetName}!${range}?majorDimension=ROWS`,
@@ -326,7 +328,7 @@ export async function GET(
     if (!dataResponse.ok) {
       return NextResponse.json(
         { error: "Failed to retrieve sheet data", status: dataResponse.status },
-        { status: dataResponse.status }
+        { status: dataResponse.status, headers: corsHeaders }
       );
     }
     
@@ -398,14 +400,14 @@ export async function GET(
       response['metadata'] = columnMetadata;
     }
     
-    return NextResponse.json(response);
+    return NextResponse.json(response, { headers: corsHeaders });
     
   } catch (error: any) {
     console.error("Error in sheet data API:", error);
     
     return NextResponse.json(
       { error: "Failed to process request", details: error.message },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
