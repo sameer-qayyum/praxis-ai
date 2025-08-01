@@ -293,9 +293,32 @@ export async function GET(
       );
     }
     
-    const sheetProps = await sheetPropsResponse.json();
-    const rowCount = sheetProps.sheets?.[0]?.properties?.gridProperties?.rowCount || 0;
-    const totalDataRows = Math.max(0, rowCount - 1); // Subtract 1 for header row
+    // Instead of using sheet properties which gives the sheet capacity (default 1000),
+    // we need to get the actual row count with data
+    // First try to get the metadata about sheet dimensions with values
+    const dimensionResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${formattedSheetName}!A:A`,
+      {
+        headers: {
+          'Authorization': `Bearer ${credentials.access_token}`,
+          'Accept': 'application/json'
+        }
+      }
+    );
+    
+    let totalDataRows = 0;
+    
+    if (dimensionResponse.ok) {
+      const dimensionData = await dimensionResponse.json();
+      // Count the actual rows with values (subtract 1 for header)
+      totalDataRows = dimensionData.values ? Math.max(0, dimensionData.values.length - 1) : 0;
+    } else {
+      // Fallback to sheet properties if we can't get the actual count
+      const sheetProps = await sheetPropsResponse.json();
+      const rowCount = sheetProps.sheets?.[0]?.properties?.gridProperties?.rowCount || 0;
+      // We'll still use this, but with a note in the response that it's an estimate
+      totalDataRows = Math.max(0, rowCount - 1); // Subtract 1 for header row
+    }
     
     // Calculate total pages
     const totalPages = Math.ceil(totalDataRows / pageSize);

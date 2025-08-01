@@ -125,12 +125,6 @@ const AppPage = () => {
   // Log app data on first load and trigger chat message fetch if we have a chat_id
   useEffect(() => {
     if (app?.id) {
-      console.log('📝 App data loaded on mount:', app.id, { 
-        hasChat: !!app.chat_id, 
-        status: app.status,
-        source: 'initialization effect'
-      });
-      
       // If we already have a chat_id, explicitly trigger chat message fetch
       if (app.chat_id) {
         console.log('💬 App has existing chat_id, triggering message fetch:', app.chat_id);
@@ -244,7 +238,27 @@ ${app.active_fields_text || ''}
         GET ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/data
 
 
-        This endpoint returns the sheet data as JSON. You can filter rows by adding query parameters that match column names, e.g. ?name=John&status=active. Rate limits apply (100 requests per hour per app).`;
+        This endpoint returns the sheet data with the following structure:
+        
+        {
+          headers: string[],          // Array of column headers
+          rows: Array<object>,        // Array of row objects with headers as keys
+          totalRows: number,          // Total number of rows in sheet
+          filteredRows?: number,     // Number of rows after filtering (if filtered)
+          page: number,              // Current page number
+          pageSize: number,          // Number of rows per page
+          totalPages: number         // Total number of pages
+        }
+        
+        Example: To sort data client-side, use: response.rows.sort((a, b) => {...})
+        
+        You can filter rows by adding query parameters that match column names, e.g. ?filter[name]=John&filter[status]=active
+        
+        Pagination is supported via ?page=2&pageSize=50 parameters (default page size is 50, max is 1000)
+        
+        Sorting is supported via ?sort=columnName:asc or ?sort=columnName:desc
+        
+        Rate limits apply (100 requests per hour per app).`;
         }
         
         // Add final instructions about column handling
