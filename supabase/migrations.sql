@@ -144,6 +144,80 @@ CREATE POLICY "Users can delete own apps"
   FOR DELETE 
   USING (auth.uid() = created_by);
 
+-- Create permission level enum type
+CREATE TYPE permission_level_type AS ENUM ('viewer', 'editor', 'admin');
+
+-- Create app_permissions table to manage access to generated apps
+CREATE TABLE public.app_permissions (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  app_id UUID REFERENCES public.apps(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  permission_level permission_level_type NOT NULL
+  created_by UUID REFERENCES auth.users(id) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(app_id, user_id)
+);
+
+-- Create indexes for common queries
+CREATE INDEX idx_app_permissions_app_id ON public.app_permissions(app_id);
+CREATE INDEX idx_app_permissions_user_id ON public.app_permissions(user_id);
+CREATE INDEX idx_app_permissions_created_by ON public.app_permissions(created_by);
+
+-- Enable row level security
+ALTER TABLE public.app_permissions ENABLE ROW LEVEL SECURITY;
+
+-- Policy to view app permissions (app creators can see all permissions for their apps)
+CREATE POLICY "App creators can view all permissions for their apps" 
+  ON public.app_permissions 
+  FOR SELECT 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_permissions.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+-- Policy to allow users to view their own permissions
+CREATE POLICY "Users can view their own permissions" 
+  ON public.app_permissions 
+  FOR SELECT 
+  USING (auth.uid() = user_id);
+
+-- Policy to allow app creators to insert permissions
+CREATE POLICY "App creators can add permissions" 
+  ON public.app_permissions 
+  FOR INSERT 
+  WITH CHECK (
+    auth.uid() = created_by AND
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_permissions.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+-- Policy to allow app creators to update permissions
+CREATE POLICY "App creators can update permissions" 
+  ON public.app_permissions 
+  FOR UPDATE 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_permissions.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+-- Policy to allow app creators to delete permissions
+CREATE POLICY "App creators can delete permissions" 
+  ON public.app_permissions 
+  FOR DELETE 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_permissions.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
 -- Function to create a new profile after signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
