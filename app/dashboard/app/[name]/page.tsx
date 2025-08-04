@@ -69,6 +69,7 @@ const AppPage = () => {
   const [showFileUpload, setShowFileUpload] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([])
   const [selectedVersion, setSelectedVersion] = useState<string>("")
+  const [currentUserId, setCurrentUserId] = useState<string>("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
   const { toast } = useToast()
@@ -92,6 +93,18 @@ const AppPage = () => {
       return data as AppData
     },
   })
+
+  // Get current user session
+  useEffect(() => {
+    const getUserSession = async () => {
+      const { data, error } = await supabase.auth.getSession()
+      if (data.session?.user?.id) {
+        setCurrentUserId(data.session.user.id)
+      }
+    }
+    
+    getUserSession()
+  }, [supabase])
 
   // Fetch template data
   const {
@@ -706,6 +719,7 @@ ${app.active_fields_text || ''}
         isFullscreen={isFullscreen}
         handleDeploy={handleDeploy}
         setIsFullscreen={setIsFullscreen}
+        currentUserId={currentUserId}
       />
 
       {/* Main Content - flex-1 takes all remaining space */}
