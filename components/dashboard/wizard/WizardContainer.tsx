@@ -165,6 +165,18 @@ export function WizardContainer({ title, description, templateId }: WizardContai
         .select('id, path_secret') // Get the created app's ID and path_secret
         .single();
 
+      // 5. Create app permissions
+      const { data: appPermissions, error: appPermissionsError } = await supabase
+        .from('app_permissions')
+        .insert({
+          app_id: appData?.id,
+          user_id: userId,
+          permission_level: 'admin',
+          created_by: userId,
+          updated_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        });
+
       if (appError) {
         throw appError;
       }
