@@ -301,9 +301,12 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
 
   // Delete a field (only custom fields can be deleted)
   const deleteField = (id: string) => {
-    // Verify it's a custom field before removing
+    // Verify it's a custom field before removing - check both the isCustom flag and the id prefix
     const fieldToDelete = fields.find(field => field.id === id)
-    if (!fieldToDelete?.isCustom) return
+    if (!fieldToDelete?.isCustom && !id.startsWith('custom-')) {
+      console.log('Cannot delete non-custom field:', id)
+      return
+    }
     
     setFields((prev) => prev.filter((field) => field.id !== id))
     toast.success("Custom field removed")
