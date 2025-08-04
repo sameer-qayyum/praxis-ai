@@ -89,10 +89,18 @@ export async function GET(request: Request) {
     if (!session) {
       // User is not authenticated, return redirect URL to login page
       const encodedRedirectUrl = encodeURIComponent(appUrl);
+      // Ensure the URL has a protocol prefix
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
+      const redirectUrl = siteUrl.startsWith('http') ? 
+        `${siteUrl}/sign-in` : 
+        `https://${siteUrl}/sign-in`;
+      
+      console.log('Redirecting unauthenticated user to:', redirectUrl);
+      
       return NextResponse.json(
         {
           authenticated: false,
-          redirectUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/sign-in`,
+          redirectUrl: redirectUrl,
         },
         { status: 401, headers: getCorsHeaders(request) }
       );
