@@ -36,6 +36,7 @@ interface AppData {
   active_fields_text?: string
   fields_metadata_json?: string
   path_secret?: string
+  requires_authentication?: boolean
 }
 
 interface Message {
@@ -261,6 +262,92 @@ ${app.active_fields_text || ''}
         Rate limits apply (100 requests per hour per app).`;
         }
         
+        // Add authentication instructions if required
+        if (app.requires_authentication) {
+          promptBase += `
+
+
+        AUTHENTICATION REQUIREMENTS:
+
+        This app requires users to be authenticated before accessing content. Implement authentication as follows:
+
+        1. Authentication Check API:
+
+        GET ${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/check
+
+        Include credentials in the request:
+        - fetch(..., { credentials: 'include' })
+        - This ensures cookies are sent with the request
+
+        2. API Response Format:
+
+        Success Response (200 OK):
+        {
+          "authenticated": true,
+          "authorized": true,
+          "user": {
+            "id": "user-uuid",
+            "email": "user@example.com"
+          },
+          "permission": "admin" // or "editor", "viewer"
+        }
+
+        Unauthenticated Response (401 Unauthorized):
+        {
+          "authenticated": false,
+          "redirectUrl": "https://app.praxis.com/auth/login?redirect_to=..."
+        }
+
+        Unauthorized Response (403 Forbidden):
+        {
+          "authenticated": true,
+          "authorized": false,
+          "message": "You do not have permission to access this app"
+        }
+
+        3. Implementation Requirements:
+
+        - Check authentication on initial app load
+        - For unauthenticated users, redirect to the login URL from the response
+        - For authenticated but unauthorized users, display an appropriate access denied message
+        - Store user info in app state for displaying user-specific content
+        - Permission level can be used to show/hide features based on user role
+
+        4. Example Authentication Check Implementation:
+
+        Example code:
+        async function checkAuth() {
+          try {
+            const response = await fetch('${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/check', {
+              credentials: 'include'
+            });
+            const data = await response.json();
+            
+            if (!data.authenticated) {
+              // User not authenticated, redirect to login
+              window.location.href = data.redirectUrl;
+              return null;
+            }
+            
+            if (!data.authorized) {
+              // User authenticated but not authorized
+              // Display access denied message to user
+              displayAccessDeniedMessage(data.message);
+              return null;
+            }
+            
+            // User is authenticated and authorized
+            return data.user;
+          } catch (error) {
+            console.error('Authentication check failed:', error);
+            // Show error message
+            return null;
+          }
+        }
+
+        Call this function when the app loads and before accessing protected resources.`;
+        }
+        
         // Add final instructions about column handling
         promptBase += `
 
@@ -274,8 +361,6 @@ ${app.active_fields_text || ''}
         if (!userId) {
           throw new Error('User not authenticated')
         }
-
-        console.log('⚡⚡ CALLING GENERATE API NOW ⚡⚡');
         
         // Call the generate API
         const generateResponse = await fetch('/api/v0/generate', {
