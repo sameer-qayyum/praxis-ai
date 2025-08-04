@@ -4,6 +4,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Trash2, AlertCircle, Shield } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { createClient } from "@/lib/supabase/client"
 import {
   Dialog,
   DialogContent,
@@ -22,6 +24,7 @@ interface AppSettingsDialogProps {
   appId: string
   appName: string
   requiresAuthentication: boolean
+  sendMessageMutation?: any // Add the sendMessageMutation from parent
   onDeleteApp?: () => void
   onUpdateAuthSetting?: (requiresAuth: boolean) => void
 }
@@ -32,6 +35,7 @@ export function AppSettingsDialog({
   appId,
   appName,
   requiresAuthentication,
+  sendMessageMutation,
   onDeleteApp,
   onUpdateAuthSetting,
 }: AppSettingsDialogProps) {
@@ -39,31 +43,205 @@ export function AppSettingsDialog({
   const [authEnabled, setAuthEnabled] = useState(requiresAuthentication)
   const router = useRouter()
   const { toast } = useToast()
+  const queryClient = useQueryClient()
+  const supabase = createClient()
 
-  const handleAuthToggle = (checked: boolean) => {
+  // Update app authentication setting mutation
+  const updateAuthMutation = useMutation({
+    mutationFn: async (requiresAuth: boolean) => {
+      // 1. Update app's requires_authentication field in database
+      const { data, error } = await supabase
+        .from("apps")
+        .update({ requires_authentication: requiresAuth })
+        .eq("id", appId)
+        .select()
+
+      if (error) throw new Error(error.message)
+      return data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["app", appId] })
+      toast.success(`Authentication requirement ${authEnabled ? 'enabled' : 'disabled'}.`)
+    },
+    onError: (error) => {
+      // Revert UI state if the update fails
+      setAuthEnabled(!authEnabled)
+      toast.error(`Failed to update authentication setting: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  })
+
+  // We'll use the existing sendMessageMutation from props instead of creating our own
+
+  const handleAuthToggle = async (checked: boolean) => {
     setAuthEnabled(checked)
-    // In the future, onUpdateAuthSetting will handle the actual API call
+    
+    // Message to send when enabling authentication
+    const authEnableMessage=`
+
+
+        AUTHENTICATION REQUIREMENTS:
+
+        This app requires users to be authenticated before accessing content. Implement authentication as follows:
+
+        1. Authentication Check API:
+
+        GET ${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/check
+
+        Include credentials in the request:
+        - fetch(..., { credentials: 'include' })
+        - This ensures cookies are sent with the request
+
+        2. API Response Format:
+
+        Success Response (200 OK):
+        {
+          "authenticated": true,
+          "authorized": true,
+          "user": {
+            "id": "user-uuid",
+            "email": "user@example.com"
+          },
+          "permission": "admin" // or "editor", "viewer"
+        }
+
+        Unauthenticated Response (401 Unauthorized):
+        {
+          "authenticated": false,
+          "redirectUrl": "${process.env.NEXT_PUBLIC_SITE_URL}/sign-in"
+        }
+
+        Unauthorized Response (403 Forbidden):
+        {
+          "authenticated": true,
+          "authorized": false,
+          "message": "You do not have permission to access this app"
+        }
+
+        3. Implementation Requirements:
+
+        - Check authentication on initial app load
+        - For unauthenticated users, redirect to the login URL from the response
+        - For authenticated but unauthorized users, display an appropriate access denied message
+        - Store user info in app state for displaying user-specific content
+        - Permission level can be used to show/hide features based on user role
+
+        4. Example Authentication Check Implementation:
+
+        Example code:
+        async function checkAuth() {
+          try {
+            const response = await fetch('${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/check', {
+              credentials: 'include'
+            });
+            const data = await response.json();
+            
+            if (!data.authenticated) {
+              // User not authenticated, redirect to login
+              window.location.href = data.redirectUrl;
+              return null;
+            }
+            
+            if (!data.authorized) {
+              // User authenticated but not authorized
+              // Display access denied message to user
+              displayAccessDeniedMessage(data.message);
+              return null;
+            }
+            
+            // User is authenticated and authorized
+            return data.user;
+          } catch (error) {
+            console.error('Authentication check failed:', error);
+            // Show error message
+            return null;
+          }
+        }
+
+        Call this function when the app loads and before accessing protected resources.`;
+    
+    // Message to send when disabling authentication
+    const authDisableMessage = `
+
+
+        AUTHENTICATION DISABLED:
+
+        This app should be accessible to anyone without requiring authentication. Please update the app to:
+
+        1. Remove any authentication checks at app initialization
+        
+        2. Remove any login/redirect flows related to authentication
+        
+        3. Make all content and functionality publicly available
+        
+        4. Remove any UI elements that show login status or user information
+        
+        5. If the app was previously requiring authentication, verify that all pages and routes
+           are now accessible without login credentials
+
+        Note: The app will still be accessible to authenticated users, but authentication
+        should not be required or enforced in any way.`;
+    
+    // Update the database setting
+    updateAuthMutation.mutate(checked)
+    
+    // Send a message through the API based on the new authentication setting
+    if (sendMessageMutation) {
+      // Wait for the update to complete before sending message
+      setTimeout(() => {
+        // Use the shared sendMessageMutation from props to send the auth instructions
+        if (checked) {
+          // Enabling authentication
+          sendMessageMutation.mutate(authEnableMessage)
+        } else if (!checked && requiresAuthentication) {
+          // Disabling authentication that was previously enabled
+          sendMessageMutation.mutate(authDisableMessage)
+        }
+      }, 500) // Small delay to ensure update completes first
+    }
+    
+    // Notify any parent handlers if provided
     if (onUpdateAuthSetting) {
       onUpdateAuthSetting(checked)
-    } else {
-      // Placeholder for future implementation
-      toast.info(`Authentication requirement ${checked ? 'enabled' : 'disabled'}. API implementation pending.`)
     }
   }
 
   const handleDeleteRequest = () => {
     setDeleteConfirmOpen(true)
   }
-
-  const handleDeleteConfirm = () => {
-    // In the future, onDeleteApp will handle the actual API call
-    if (onDeleteApp) {
-      onDeleteApp()
-    } else {
-      // Placeholder for future implementation
-      toast.info("App deletion functionality will be implemented soon")
+  
+  // Delete app mutation
+  const deleteAppMutation = useMutation({
+    mutationFn: async () => {
+      // Delete the app from the database
+      const { error } = await supabase
+        .from("apps")
+        .delete()
+        .eq("id", appId)
+      
+      if (error) throw new Error(error.message)
+      return { success: true }
+    },
+    onSuccess: () => {
+      toast.success(`App "${appName}" has been deleted`)
       setDeleteConfirmOpen(false)
       onClose()
+      // Navigate back to the apps list
+      setTimeout(() => router.push("/dashboard/apps"), 500)
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete app: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      setDeleteConfirmOpen(false)
+    }
+  })
+
+  const handleDeleteConfirm = () => {
+    // Use parent handler if provided
+    if (onDeleteApp) {
+      onDeleteApp()
+      setDeleteConfirmOpen(false)
+    } else {
+      // Otherwise use our mutation
+      deleteAppMutation.mutate()
     }
   }
 
@@ -99,6 +277,7 @@ export function AppSettingsDialog({
                     id="auth-required"
                     checked={authEnabled}
                     onCheckedChange={handleAuthToggle}
+                    disabled={updateAuthMutation.isPending}
                   />
                 </div>
               </div>
@@ -123,9 +302,10 @@ export function AppSettingsDialog({
                       variant="destructive" 
                       onClick={handleDeleteRequest}
                       className="bg-red-600 hover:bg-red-700"
+                      disabled={deleteAppMutation.isPending}
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete {appName}
+                      {deleteAppMutation.isPending ? "Deleting..." : `Delete ${appName}`}
                     </Button>
                   </div>
                 </div>
@@ -134,7 +314,13 @@ export function AppSettingsDialog({
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={onClose}>Close</Button>
+            <Button 
+              variant="outline" 
+              onClick={onClose}
+              disabled={updateAuthMutation.isPending || deleteAppMutation.isPending}
+            >
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -149,13 +335,25 @@ export function AppSettingsDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
+            <Button 
+              variant="outline" 
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={deleteAppMutation.isPending}
+            >
+              Cancel
+            </Button>
             <Button 
               variant="destructive" 
               className="bg-red-600 hover:bg-red-700" 
               onClick={handleDeleteConfirm}
+              disabled={deleteAppMutation.isPending}
             >
-              Delete App
+              {deleteAppMutation.isPending ? (
+                <>
+                  <span className="animate-pulse mr-2">●</span>
+                  Deleting...
+                </>
+              ) : "Delete App"}
             </Button>
           </DialogFooter>
         </DialogContent>

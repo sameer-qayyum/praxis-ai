@@ -22,6 +22,7 @@ interface AppHeaderProps {
   handleDeploy: () => void
   setIsFullscreen: (value: boolean) => void
   currentUserId: string
+  sendMessageMutation?: any // Add sendMessageMutation to be passed to settings dialog
 }
 
 export const AppHeader = ({
@@ -31,6 +32,7 @@ export const AppHeader = ({
   handleDeploy,
   setIsFullscreen,
   currentUserId,
+  sendMessageMutation,
 }: AppHeaderProps) => {
   const [isEditing, setIsEditing] = useState(false)
   const [appName, setAppName] = useState(app.name || `App ${app.id}`)
@@ -177,6 +179,7 @@ export const AppHeader = ({
           appId={app.id}
           appName={app.name || `App ${app.id}`}
           requiresAuthentication={!!app.requires_authentication}
+          sendMessageMutation={sendMessageMutation}
         />
       </div>
     </div>

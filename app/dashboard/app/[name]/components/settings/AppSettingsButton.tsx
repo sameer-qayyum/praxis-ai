@@ -10,9 +10,10 @@ interface AppSettingsButtonProps {
   appId: string
   appName: string
   requiresAuthentication: boolean
+  sendMessageMutation?: any // Add the sendMessageMutation to be passed to dialog
 }
 
-export function AppSettingsButton({ appId, appName, requiresAuthentication }: AppSettingsButtonProps) {
+export function AppSettingsButton({ appId, appName, requiresAuthentication, sendMessageMutation }: AppSettingsButtonProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   const openDialog = () => {
@@ -50,6 +51,7 @@ export function AppSettingsButton({ appId, appName, requiresAuthentication }: Ap
         appId={appId}
         appName={appName}
         requiresAuthentication={requiresAuthentication}
+        sendMessageMutation={sendMessageMutation}
       />
     </>
   )

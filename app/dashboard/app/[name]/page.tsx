@@ -720,6 +720,7 @@ ${app.active_fields_text || ''}
         handleDeploy={handleDeploy}
         setIsFullscreen={setIsFullscreen}
         currentUserId={currentUserId}
+        sendMessageMutation={sendMessageMutation}
       />
 
       {/* Main Content - flex-1 takes all remaining space */}
