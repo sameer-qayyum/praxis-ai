@@ -17,6 +17,6 @@ export const config = {
      * - /api/sheets
      * Feel free to modify this pattern to include more paths.
      */
-    "/((?!_next/static|_next/image|favicon.ico|api/public|api/sheets|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/public|api/sheets|api/auth/check|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

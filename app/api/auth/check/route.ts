@@ -74,7 +74,7 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           authenticated: false,
-          redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL}/auth/login?redirect_to=${encodedRedirectUrl}`,
+          redirectUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/sign-in`,
         },
         { status: 401, headers: corsHeaders }
       );

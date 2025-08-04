@@ -42,6 +42,11 @@ const nextConfig: NextConfig = {
         source: '/api/public/forms/:appId/:pathSecret/submit',
         destination: '/api/public/forms/:appId/:pathSecret/submit/',
       },
+      // Handle auth check endpoint for v0 apps
+      {
+        source: '/api/auth/check',
+        destination: '/api/auth/check',
+      },
     ];
   },
 };
