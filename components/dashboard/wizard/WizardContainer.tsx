@@ -7,6 +7,7 @@ import { WizardProgress } from "./WizardProgress"
 import { ConnectGoogleSheets } from "./steps/ConnectGoogleSheets"
 import { UploadForm } from "./steps/UploadForm"
 import { ReviewFields } from "./steps/ReviewFields"
+import { ConfigureAppAccess } from "./steps/ConfigureAppAccess"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import type { ColumnSyncResult } from "@/context/GoogleSheetsContext"
 import { toast } from "sonner"
@@ -24,6 +25,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const [initialCheckComplete, setInitialCheckComplete] = useState(false)
   const [selectedFieldsCount, setSelectedFieldsCount] = useState(0)
   const [fields, setFields] = useState<any[]>([])
+  const [requiresAuthentication, setRequiresAuthentication] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isCheckingColumns, setIsCheckingColumns] = useState(false)
   const [columnChanges, setColumnChanges] = useState<ColumnSyncResult | null>(null)
@@ -157,7 +159,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           updated_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
           number_of_messages: 1,
-          path_secret: pathSecret // Set the generated path_secret
+          path_secret: pathSecret, // Set the generated path_secret
+          requires_authentication: requiresAuthentication // Set the authentication requirement
         })
         .select('id, path_secret') // Get the created app's ID and path_secret
         .single();
@@ -204,6 +207,13 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       title: "Review Fields",
       description: "Customize the extracted form fields",
       status: currentStep === 3 ? "current" : currentStep > 3 ? "complete" : "upcoming"
+    },
+    {
+      number: isConnected ? 3 : 4, // Adjust number based on Google Sheets connection
+      id: "configure-access",
+      title: "Configure Access",
+      description: "Set access permissions for your app",
+      status: currentStep === 4 ? "current" : currentStep > 4 ? "complete" : "upcoming"
     }
   ] as const
   
@@ -220,18 +230,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
   const progressPercentage = Math.round((effectiveStepNumber / totalSteps) * 100)
   
   const goToNextStep = () => {
-    
-    // When connected to Google, we need special handling for steps
-    if (isConnected) {
-      // When on step 2 (Upload Form), we want to go to step 3 (Review Fields)
-      if (currentStep === 2) {
-        setCurrentStep(3)
-        return
-      }
-    }
-    
     // Standard next step logic
-    if (currentStep < totalSteps) {
+    if (currentStep < totalSteps + 1) {
       setCurrentStep(currentStep + 1)
     }
   }
@@ -260,6 +260,11 @@ export function WizardContainer({ title, description, templateId }: WizardContai
             onFieldsUpdate={setFields} 
             columnChanges={columnChanges}
           />
+        case 4:
+          return <ConfigureAppAccess
+            onAuthSettingChange={setRequiresAuthentication}
+            defaultValue={false}
+          />
         default:
           return <div>Step not found</div>
       }
@@ -278,6 +283,11 @@ export function WizardContainer({ title, description, templateId }: WizardContai
             onFieldsChange={setSelectedFieldsCount} 
             onFieldsUpdate={setFields} 
             columnChanges={columnChanges}
+          />
+        case 4:
+          return <ConfigureAppAccess
+            onAuthSettingChange={setRequiresAuthentication}
+            defaultValue={false}
           />
         default:
           return <div>Step not found</div>
@@ -327,8 +337,8 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           Previous
         </Button>
         
-        {/* Show finish button only on the last step (Review Fields), not on intermediate steps */}
-        {(isConnected && currentStep === 3) || (!isConnected && currentStep === 3) ? (
+        {/* Show finish button only on the last step (Configure Access), not on intermediate steps */}
+        {(isConnected && currentStep === 4) || (!isConnected && currentStep === 4) ? (
           <Button 
             onClick={handleFinish} 
             className="flex items-center bg-green-600 hover:bg-green-700"

@@ -8,6 +8,7 @@ The wizard provides a step-by-step interface for users to create applications by
 1. Connecting to Google Sheets (optional if already connected)
 2. Uploading or selecting a form
 3. Reviewing extracted fields
+4. Configuring app access permissions
 
 ## Component Structure
 
@@ -19,7 +20,8 @@ WizardContainer
     │   └── ConnectGoogleSheetsButton
     ├── UploadForm
     │   └── Google Sheets selection/creation UI
-    └── ReviewFields
+    ├── ReviewFields
+    └── ConfigureAppAccess
 ```
 
 ## Key Types
@@ -77,12 +79,12 @@ type Step = {
 3. **Navigation**:
    - "Previous" button - Decrements `currentStep`
    - "Next" button - Increments `currentStep`
-   - "Finish" button - Only shown on final step
+   - "Finish" button - Only shown on final step (Configure App Access)
 
 4. **Progress Calculation**:
    - Adjusts progress based on total visible steps
-   - For connected users: 2 total steps (Upload and Review)
-   - For non-connected users: 3 total steps (Connect, Upload, Review)
+   - For connected users: 3 total steps (Upload, Review, and Configure Access)
+   - For non-connected users: 4 total steps (Connect, Upload, Review, Configure Access)
 
 ## Step Components
 
@@ -114,6 +116,14 @@ Enables users to:
   - Green border/badge for columns newly added to Google Sheet
   - Amber border/badge for columns reordered in Google Sheet
 - Auto-exclude removed columns (defaults to unchecked "Include")
+
+### ConfigureAppAccess
+
+Allows users to:
+- Choose whether authentication is required to access the generated app
+- See visual indicators for access settings
+- Understand the security implications of their choice
+- Default setting is public access (requires_authentication = false)
 
 ## Data Saving Process
 
@@ -149,6 +159,7 @@ When the user clicks the Finish button:
    - Calls `saveSheetConnection()` with formatted data
    - Function checks if connection already exists (for update vs. insert)
    - Performs upsert operation in the `google_sheets_connections` table
+   - Sets `requires_authentication` field in the apps table based on user's choice
 
 4. **User Feedback**:
    - Shows success toast if operation completes successfully
