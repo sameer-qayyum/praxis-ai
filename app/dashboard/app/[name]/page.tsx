@@ -295,7 +295,7 @@ ${app.active_fields_text || ''}
         Unauthenticated Response (401 Unauthorized):
         {
           "authenticated": false,
-          "redirectUrl": "https://app.praxis.com/auth/login?redirect_to=..."
+          "redirectUrl": "${process.env.NEXT_PUBLIC_SITE_URL}/sign-in"
         }
 
         Unauthorized Response (403 Forbidden):
