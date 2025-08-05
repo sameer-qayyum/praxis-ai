@@ -218,12 +218,127 @@ CREATE POLICY "App creators can delete permissions"
     )
   );
 
--- Function to create a new profile after signup
+-- Create app_invites table to handle invitations to apps
+CREATE TABLE public.app_invites (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  app_id UUID REFERENCES public.apps(id) ON DELETE CASCADE NOT NULL,
+  invited_email TEXT NOT NULL,
+  permission_level permission_level_type NOT NULL,
+  created_by UUID REFERENCES auth.users(id) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  accepted_at TIMESTAMP WITH TIME ZONE,
+  invitation_token TEXT UNIQUE DEFAULT uuid_generate_v4(),
+  UNIQUE(app_id, invited_email)
+);
+
+-- Create indexes for common queries
+CREATE INDEX idx_app_invites_app_id ON public.app_invites(app_id);
+CREATE INDEX idx_app_invites_invited_email ON public.app_invites(invited_email);
+CREATE INDEX idx_app_invites_created_by ON public.app_invites(created_by);
+CREATE INDEX idx_app_invites_invitation_token ON public.app_invites(invitation_token);
+
+-- Enable row level security
+ALTER TABLE public.app_invites ENABLE ROW LEVEL SECURITY;
+
+-- Policy to view invites (app admins can see all invites for their apps)
+CREATE POLICY "App admins can view all invites for their apps" 
+  ON public.app_invites 
+  FOR SELECT 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.app_permissions 
+      WHERE app_permissions.app_id = app_invites.app_id 
+      AND app_permissions.user_id = auth.uid()
+      AND app_permissions.permission_level = 'admin'
+    )
+    OR 
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_invites.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+-- Policy to allow app admins to insert invites
+CREATE POLICY "App admins can add invites" 
+  ON public.app_invites 
+  FOR INSERT 
+  WITH CHECK (
+    auth.uid() = created_by AND
+    (
+      EXISTS (
+        SELECT 1 FROM public.app_permissions 
+        WHERE app_permissions.app_id = app_invites.app_id 
+        AND app_permissions.user_id = auth.uid()
+        AND app_permissions.permission_level = 'admin'
+      )
+      OR 
+      EXISTS (
+        SELECT 1 FROM public.apps 
+        WHERE apps.id = app_invites.app_id AND apps.created_by = auth.uid()
+      )
+    )
+  );
+
+-- Policy to allow app admins to update invites
+CREATE POLICY "App admins can update invites" 
+  ON public.app_invites 
+  FOR UPDATE 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.app_permissions 
+      WHERE app_permissions.app_id = app_invites.app_id 
+      AND app_permissions.user_id = auth.uid()
+      AND app_permissions.permission_level = 'admin'
+    )
+    OR 
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_invites.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+-- Policy to allow app admins to delete invites
+CREATE POLICY "App admins can delete invites" 
+  ON public.app_invites 
+  FOR DELETE 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.app_permissions 
+      WHERE app_permissions.app_id = app_invites.app_id 
+      AND app_permissions.user_id = auth.uid()
+      AND app_permissions.permission_level = 'admin'
+    )
+    OR 
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_invites.app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+-- Function to create a new profile after signup and handle existing invites
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- Create profile for the new user (original functionality)
   INSERT INTO public.profiles (id)
   VALUES (NEW.id);
+  
+  -- Check for pending invitations for this email and create permissions
+  INSERT INTO public.app_permissions (app_id, user_id, permission_level, created_by)
+  SELECT 
+    inv.app_id, 
+    NEW.id, 
+    inv.permission_level,
+    inv.created_by
+  FROM public.app_invites inv
+  WHERE LOWER(inv.invited_email) = LOWER(NEW.email)
+    AND inv.accepted_at IS NULL;
+  
+  -- Mark invitations as accepted
+  UPDATE public.app_invites
+  SET accepted_at = NOW()
+  WHERE LOWER(invited_email) = LOWER(NEW.email);
+  
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

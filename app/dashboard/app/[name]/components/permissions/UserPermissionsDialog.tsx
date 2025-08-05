@@ -83,43 +83,126 @@ export function UserPermissionsDialog({
   const [selectedPermission, setSelectedPermission] = useState<PermissionLevel>(PermissionLevel.VIEWER)
   const [open, setOpen] = useState(false)
 
-  // Fetch app permissions
+  // Fetch app permissions - only show permissions created by the current user
   const {
     data: permissions,
     isLoading: isLoadingPermissions,
   } = useQuery({
-    queryKey: ["app-permissions", appId],
+    queryKey: ["app-permissions", appId, currentUserId],
     queryFn: async () => {
+      // Join app_permissions with profiles and auth.users to get user details
       const { data, error } = await supabase
         .from("app_permissions")
-        .select("*, users(id, email, full_name, avatar_url)")
+        .select(`
+          id, app_id, user_id, permission_level, created_at, updated_at, created_by,
+          profiles!app_permissions_user_id_fkey(id, full_name, avatar_url)
+        `)
         .eq("app_id", appId)
-
+        .eq("created_by", currentUserId) // Only show permissions created by current user
+      
       if (error) throw new Error(error.message)
-      return data as (AppPermission & { users: User })[]
+      
+      // Now get emails from users table separately via a server function
+      // In Supabase, client-side can't directly query auth.users, so we'll use the public users view
+      const userIds = data.map((item: any) => item.user_id)
+      
+      // If no permissions, return empty array
+      if (userIds.length === 0) return []
+      
+      // Get emails from users table through public view
+      const { data: usersData, error: usersError } = await supabase
+        .from('users') // This should be a secure public view that only exposes emails of users you have permissions with
+        .select('id, email')
+        .in('id', userIds)
+      
+      if (usersError) {
+        console.error("Error fetching user emails:", usersError)
+        throw new Error(usersError.message)
+      }
+      
+      // Combine the data
+      const permissionsWithUserDetails = data.map((permission: any) => {
+        const userEmail = usersData?.find(u => u.id === permission.user_id)?.email || ''
+        return {
+          ...permission,
+          users: {
+            id: permission.user_id,
+            email: userEmail,
+            full_name: permission.profiles?.full_name,
+            avatar_url: permission.profiles?.avatar_url
+          }
+        }
+      })
+      
+      return permissionsWithUserDetails as (AppPermission & { users: User })[]
     },
   })
 
-  // Fetch users for adding new permissions
+  // Fetch users for adding new permissions - only search in organization or users with existing permissions
   const {
     data: users,
     isLoading: isLoadingUsers,
   } = useQuery({
-    queryKey: ["users", searchQuery],
+    queryKey: ["users", searchQuery, currentUserId],
     queryFn: async () => {
       // Only search if user is actively adding a new user and has typed something
-      if (!isAddingUser || !searchQuery.trim()) return []
-
-      const { data, error } = await supabase
-        .from("users")
-        .select("id, email, full_name, avatar_url")
-        .ilike("email", `%${searchQuery}%`)
+      if (!isAddingUser || !searchQuery.trim() || searchQuery.length < 3) return []
+      
+      // First, get user IDs from app_permissions across all the user's apps
+      // This gets all users the current user has previously shared any app with
+      const { data: userPermissions, error: permError } = await supabase
+        .from("app_permissions")
+        .select("user_id")
+        .eq("created_by", currentUserId)
+        .neq("user_id", currentUserId)
+      
+      if (permError) {
+        console.error("Error fetching user permissions:", permError)
+        throw new Error(permError.message)
+      }
+      
+      // Get user IDs that the current user has previously shared apps with
+      const userIdsWithPermissions = userPermissions?.map(p => p.user_id) || []
+      
+      // If no previously shared permissions, we can't suggest users yet
+      // In a real app, you might integrate with an org directory here
+      if (userIdsWithPermissions.length === 0) return []
+      
+      // Search for users that the current user has previously shared apps with
+      // This is a privacy-friendly approach as it only shows users they've already interacted with
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url")
+        .in("id", userIdsWithPermissions)
+        .or(`full_name.ilike.%${searchQuery}%`)
         .limit(10)
-
-      if (error) throw new Error(error.message)
-      return data as User[]
+      
+      if (profilesError) throw new Error(profilesError.message)
+      
+      // Get emails separately from users table
+      if (!profilesData || profilesData.length === 0) return []
+      
+      const { data: emailsData, error: emailsError } = await supabase
+        .from("users")
+        .select("id, email")
+        .in("id", profilesData.map(p => p.id))
+      
+      if (emailsError) throw new Error(emailsError.message)
+      
+      // Combine profiles with emails
+      const usersWithEmails = profilesData.map(profile => {
+        const userEmail = emailsData?.find(u => u.id === profile.id)?.email || ''
+        return {
+          id: profile.id,
+          email: userEmail,
+          full_name: profile.full_name,
+          avatar_url: profile.avatar_url
+        }
+      })
+      
+      return usersWithEmails as User[]
     },
-    enabled: isAddingUser && !!searchQuery.trim(),
+    enabled: isAddingUser && !!searchQuery.trim() && searchQuery.length >= 3,
   })
 
   // Add user permission mutation
