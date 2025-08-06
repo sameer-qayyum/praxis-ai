@@ -155,8 +155,8 @@ export async function GET(
       }
     }
 
-    // Get sheet ID from params
-    const sheetId = params.sheetId;
+    // Get sheet ID from params - must await dynamic params in Next.js App Router
+    const sheetId = await params.sheetId;
     
     // Parse query parameters for filtering, sorting, and pagination
     const url = new URL(request.url);

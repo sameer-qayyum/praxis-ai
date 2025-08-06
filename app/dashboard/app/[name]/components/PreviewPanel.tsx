@@ -12,6 +12,7 @@ import {
 import { Eye, Code2, RefreshCw, History, Database } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { GoogleSheetPanel } from "./GoogleSheetPanel"
 
 interface AppVersion {
   id: string
@@ -262,42 +263,7 @@ export const PreviewPanel = ({
         </TabsContent>
 
         <TabsContent value="code" className="flex-1 m-0 p-0 overflow-hidden">
-          <ScrollArea className="h-full w-full">
-            <div className="p-4">
-              {messages.length > 0 ? (
-                <div className="space-y-6">
-                  {messages.map((msg) =>
-                    msg.files && msg.files.length > 0 ? (
-                      <div key={`${msg.id}-files`} className="space-y-4">
-                        {msg.files.map((file, index) => (
-                          <Card key={`${msg.id}-file-${index}`} className="overflow-hidden">
-                            <CardHeader className="py-2 px-3 bg-gray-50 border-b">
-                              <CardTitle className="text-sm font-mono">
-                                {file.meta?.file || file.name || `File ${index + 1}`}
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                              <pre className="p-4 overflow-auto text-xs bg-gray-900 text-gray-100">
-                                <code>{file.source || file.content || ""}</code>
-                              </pre>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    ) : null,
-                  )}
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <Code2 className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500">No code files available</p>
-                    <p className="text-gray-400 text-sm mt-1">Generated code will appear here</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
+          <GoogleSheetPanel app={app} />
         </TabsContent>
       </Tabs>
     </div>
