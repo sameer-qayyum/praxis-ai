@@ -2,17 +2,6 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { DragDropContext, Droppable, Draggable, DroppableProvided, DraggableProvided } from "@hello-pangea/dnd";
-import { useForm, useController } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +15,15 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogClose
+} from "@/components/ui/dialog";
+import {
   GripVertical,
   Plus,
   Trash2,
@@ -35,12 +33,6 @@ import {
   InfoIcon,
   AlarmClock,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 
@@ -50,7 +42,7 @@ interface Field {
   name: string;
   type: string;
   description: string;
-  include: boolean;
+  active: boolean;
   sampleData?: string[];
 }
 
@@ -97,7 +89,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         field.name !== original.name ||
         field.type !== original.type ||
         field.description !== original.description ||
-        field.include !== original.include
+        field.active !== original.active
       );
     });
   };
@@ -184,7 +176,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const toggleFieldInclusion = (id: string) => {
     setFields((currentFields) =>
       currentFields.map((field) =>
-        field.id === id ? { ...field, include: !field.include } : field
+        field.id === id ? { ...field, include: !field.active } : field
       )
     );
     setIsDirty(true);
@@ -273,7 +265,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                         ref={provided.innerRef}
                         {...provided.draggableProps}
                         className={`border rounded-md p-3 bg-white dark:bg-slate-800 ${
-                          !field.include
+                          !field.active
                             ? "opacity-70 bg-gray-50 dark:bg-slate-900"
                             : ""
                         }`}
@@ -327,7 +319,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                               </Label>
                               <Switch
                                 id={`include-${field.id}`}
-                                checked={field.include}
+                                checked={field.active}
                                 onCheckedChange={() =>
                                   toggleFieldInclusion(field.id)
                                 }
@@ -354,13 +346,16 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       )}
 
       {/* Edit Field Dialog */}
-      {isEditing && editedField && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg w-full max-w-md">
-            <div className="p-4 border-b">
-              <h3 className="font-medium">Edit Field</h3>
-            </div>
-            <div className="p-4 space-y-4">
+      <Dialog open={isEditing !== null} onOpenChange={(open) => !open && setIsEditing(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Field</DialogTitle>
+            <DialogDescription>
+              Modify the properties of this field.
+            </DialogDescription>
+          </DialogHeader>
+          {editedField && (
+            <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label htmlFor="fieldName">Field Name</Label>
                 <Input
@@ -411,11 +406,11 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="fieldInclude"
-                  checked={editedField.include}
+                  checked={editedField.active}
                   onCheckedChange={(checked) =>
                     setEditedField({
                       ...editedField,
-                      include: checked === true,
+                      active: checked === true,
                     })
                   }
                 />
@@ -427,20 +422,15 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                 </label>
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end space-x-2">
-              <Button
-                variant="default"
-                className="ml-2"
-                onClick={() => updateMetadata.mutate(fields)}
-                disabled={updateMetadata.isPending}
-              >
-                Save Changes
-              </Button>
-              <Button onClick={handleSaveEdit}>Save Changes</Button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+          <DialogFooter className="flex justify-end space-x-2">
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={handleSaveEdit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="mt-4 text-sm text-gray-500 flex items-center">
         <InfoIcon className="h-4 w-4 mr-2" />
