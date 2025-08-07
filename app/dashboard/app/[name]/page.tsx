@@ -34,7 +34,7 @@ interface AppData {
   number_of_messages?: number
   last_synced?: string
   active_fields_text?: string
-  fields_metadata_json?: string
+  data_model?: string
   path_secret?: string
   requires_authentication?: boolean
 }
@@ -187,7 +187,7 @@ const AppPage = () => {
         // Create the base prompt using the template's user_prompt
         const basePrompt = templateData?.base_prompt || 'Create a web application based on the Google Sheet structure provided.'
         // Create a detailed metadata description for v0
-        const fieldsMetadataJson = JSON.stringify(sheetData.columns_metadata, null, 2);
+        const fieldsMetadataJson = JSON.stringify(app?.data_model, null, 2);
         
         // Create a complete prompt with the fields stored in the database
         // Start with the common parts of the prompt
@@ -477,7 +477,6 @@ ${app.active_fields_text || ''}
   } = useQuery({
     queryKey: ["chat", app?.chat_id],
     queryFn: async () => {
-      console.log('📬 Fetching chat messages for chat_id:', app?.chat_id);
       if (!app?.chat_id) {
         console.error('No chat_id available - this should not happen due to enabled property');
         return [];
@@ -550,7 +549,6 @@ ${app.active_fields_text || ''}
           // Update the app data in the React Query cache
           queryClient.setQueryData(["app", name], updatedApp);
           
-          console.log('Updated preview URL:', demoUrl);
         }
         
         console.log('Full chat data stored in cache:', data.fullChatData)
@@ -565,7 +563,7 @@ ${app.active_fields_text || ''}
         
         // Also invalidate and refetch versions to update the dropdown
         if (app?.id && app?.chat_id) {
-          console.log('📁 Invalidating versions cache to get latest versions');
+          
           queryClient.invalidateQueries({
             queryKey: ["app-versions", app.id, app.chat_id]
           }).then(() => {

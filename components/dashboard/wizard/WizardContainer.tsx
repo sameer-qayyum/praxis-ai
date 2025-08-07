@@ -87,12 +87,25 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       // This will be the default if we can't get the actual tab name
       const sheetTabName = selectedSheet.activeSheetName || "Sheet1";
       
+      // Check if a connection already exists for this sheet
+      const { data: existingConnection } = await supabase
+        .from('google_sheets_connections')
+        .select('id')
+        .eq('sheet_id', selectedSheet.id)
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+        .maybeSingle();
+
+      // Set forceGlobalUpdate to true only if this is a new connection
+      // For existing connections, we only update the app-specific data_model
+      const isNewConnection = !existingConnection;
+
       // 1. Save the Google Sheet connection to get the connection ID
       const sheetConnectionResult = await saveSheetConnection(
         connectionName,
         connectionDescription,
         columnsMetadata,
-        sheetTabName
+        sheetTabName,
+        isNewConnection // Only update global metadata if this is a new connection
       );
       
       if (!sheetConnectionResult) {
@@ -160,6 +173,7 @@ export function WizardContainer({ title, description, templateId }: WizardContai
           created_at: new Date().toISOString(),
           number_of_messages: 1,
           path_secret: pathSecret, // Set the generated path_secret
+          data_model: columnsMetadata,
           requires_authentication: requiresAuthentication // Set the authentication requirement
         })
         .select('id, path_secret') // Get the created app's ID and path_secret

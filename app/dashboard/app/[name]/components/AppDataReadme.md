@@ -65,6 +65,83 @@ Google Sheets API
 4. Data returned and rendered in tabular view
 5. Pagination and search controlled by component state
 
+## Field Management System
+
+### Component Structure
+
+```
+GoogleSheetPanel
+└── SheetFieldManager
+    ├── Field List (draggable interface)
+    │   └── Field Items (individual fields with toggles)
+    └── Edit Field Dialog
+```
+
+### State Management
+
+| Component | State | Purpose |
+|-----------|-------|--------|
+| GoogleSheetPanel | modifiedFields | Tracks field changes from SheetFieldManager |
+| GoogleSheetPanel | hasChanges | Controls visibility of save buttons |
+| SheetFieldManager | fields | Current field configuration |
+| SheetFieldManager | originalFields | Initial field state for comparison |
+| SheetFieldManager | isDirty | Tracks unsaved changes |
+| SheetFieldManager | isEditing | Controls edit dialog visibility |
+| SheetFieldManager | editedField | Field being edited in dialog |
+
+### UI Elements
+
+- **Toggle Switch**: Enables/disables field inclusion in app
+- **Save Button**: Saves current field configuration
+- **Refresh Button**: Reloads field data from API
+- **Edit Button**: Opens field edit dialog
+- **Drag Handles**: Allows reordering of fields
+- **Edit Dialog**: Form for modifying field properties
+
+### Data Persistence Flow
+
+1. **Toggle Field**
+   ```
+   User toggles field → toggleFieldInclusion() → Update fields state → 
+   setIsDirty(true) → onFieldChange callback → GoogleSheetPanel updates modifiedFields
+   ```
+
+2. **Edit Field**
+   ```
+   User clicks Edit → handleEditField() → Edit Dialog opens → 
+   User modifies field → User clicks Save Changes → handleSaveEdit() → 
+   Update fields state → setIsDirty(true) → onFieldChange callback
+   ```
+
+3. **Save Changes**
+   ```
+   User clicks Save Fields Only → handleSaveFieldsOnly() → saveFieldsMutation → 
+   PUT /api/dashboard/sheets/[sheetId]/columns → API updates app data_model in database
+   ```
+
+4. **Regenerate App**
+   ```
+   User clicks Save & Regenerate App → saveFieldsMutation → 
+   POST /api/apps/[appId]/regenerate → API updates app and rebuilds
+   ```
+
+### Database Schema
+
+Fields are stored in the app's `data_model` column in the `apps` table:
+
+```typescript
+interface Field {
+  id: string;       // Unique identifier
+  name: string;     // Display name
+  type: string;     // Data type (text, number, boolean, etc.)
+  description: string;  // Field description
+  active: boolean;  // Inclusion flag
+  options?: any[];  // Type-specific options
+  originalIndex?: number;  // Position tracking
+  sampleData?: string[];  // Sample values from sheet
+}
+```
+
 ## Rate Limit Handling
 
 To prevent Google Sheets API quota errors (429 status codes):

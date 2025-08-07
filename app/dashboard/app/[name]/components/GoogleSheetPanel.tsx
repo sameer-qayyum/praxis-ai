@@ -2,8 +2,6 @@ import React, { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Database, Sliders, RefreshCw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SheetDataView } from "./SheetDataView";
 import { SheetFieldManager } from "./SheetFieldManager";
 import { 
@@ -33,9 +31,15 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
   const queryClient = useQueryClient();
   const supabase = createClient();
   
+  // Track field changes
+  const [modifiedFields, setModifiedFields] = useState<any[] | null>(null);
+  
   // Handle field changes
-  const handleFieldChanges = (changed: boolean) => {
+  const handleFieldChanges = (changed: boolean, fields?: any[]) => {
     setHasChanges(changed);
+    if (fields) {
+      setModifiedFields(fields);
+    }
   };
 
   // Save field changes mutation
@@ -43,9 +47,25 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
     mutationFn: async () => {
       if (!app?.id) throw new Error("App ID not available");
       
-      // Get the current fields from query cache
-      const fieldsData = queryClient.getQueryData<{ columns: any[] }>(["sheet-columns", app.id]);
-      if (!fieldsData?.columns) throw new Error("No field data available");
+      // Use the modified fields if available, otherwise fall back to query cache
+      let columnsToSave;
+      
+      if (modifiedFields) {
+        console.log('GoogleSheetPanel: Using modified fields from state:', modifiedFields);
+        columnsToSave = modifiedFields;
+      } else {
+        // Fall back to query cache
+        const fieldsData = queryClient.getQueryData<{ columns: any[] }>(["sheet-columns", app.id]);
+        if (!fieldsData?.columns) throw new Error("No field data available");
+        columnsToSave = fieldsData.columns;
+        console.log('GoogleSheetPanel: Using fields from cache:', columnsToSave);
+      }
+      
+      // Ensure boolean values are explicitly set
+      const columnsWithExplicitBooleans = columnsToSave.map(col => ({
+        ...col,
+        active: col.active === true // Force explicit boolean conversion
+      }));
       
       // Call our dashboard sheets columns API to update
       const response = await fetch(
@@ -55,7 +75,7 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ columns: fieldsData.columns }),
+          body: JSON.stringify({ columns: columnsWithExplicitBooleans }),
         }
       );
 

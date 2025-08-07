@@ -82,7 +82,7 @@ interface GoogleSheetsContextType {
   refreshSheets: () => Promise<GoogleSheet[]>;
   createSheet: (name: string) => Promise<GoogleSheet | null>;
   getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
-  saveSheetConnection: (connectionName: string, description: string, columnsMetadata: any[], sheetTabName?: string) => Promise<boolean>;
+  saveSheetConnection: (connectionName: string, description: string, columnsMetadata: any[], sheetTabName?: string, forceGlobalUpdate?: boolean) => Promise<boolean>;
   writeSheetColumns: (sheetId: string, columns: any[]) => Promise<boolean>;
   getSheetConnection: (sheetId: string) => Promise<any | null>;
   checkSheetColumnChanges: (sheetId: string) => Promise<ColumnSyncResult | null>;
@@ -497,7 +497,8 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     connectionName: string,
     description: string,
     columnsMetadata: any[],
-    sheetTabName?: string // Added parameter for the specific sheet tab name
+    sheetTabName?: string, // Added parameter for the specific sheet tab name
+    forceGlobalUpdate?: boolean // Flag to update global metadata even for existing connections
   ): Promise<boolean> => {
     
     if (!selectedSheet?.id) {
@@ -539,16 +540,23 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
 
       if (existingConnection) {
         // Update existing connection
+        // Only update columns_metadata if forceGlobalUpdate is true
+        const updateData: any = {
+          name: connectionName, // Connection name provided by user
+          sheet_name: actualSheetTabName, // Name of the specific sheet/tab
+          description,
+          updated_at: new Date().toISOString(),
+        };
+        
+        // Only update columns_metadata if explicitly requested
+        if (forceGlobalUpdate === true) {
+          updateData.columns_metadata = columnsMetadata;
+          console.log('📝 Updating global sheet metadata as requested');
+        }
         
         const { data, error } = await supabase
           .from('google_sheets_connections')
-          .update({
-            name: connectionName, // Connection name provided by user
-            sheet_name: actualSheetTabName, // Name of the specific sheet/tab
-            description,
-            updated_at: new Date().toISOString(),
-            columns_metadata: columnsMetadata
-          })
+          .update(updateData)
           .eq('id', existingConnection.id)
           .select()
 

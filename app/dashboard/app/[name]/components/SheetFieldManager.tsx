@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
 import { DragDropContext, Droppable, Draggable, DroppableProvided, DraggableProvided } from "@hello-pangea/dnd";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,16 +24,14 @@ import {
 } from "@/components/ui/dialog";
 import {
   GripVertical,
-  Plus,
-  Trash2,
   RefreshCw,
   CheckCircle2,
-  XCircle,
   InfoIcon,
-  AlarmClock,
+  AlertCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Field interface based on ReviewFields component
 interface Field {
@@ -44,14 +41,17 @@ interface Field {
   description: string;
   active: boolean;
   sampleData?: string[];
+  options?: any[];
+  originalIndex?: number;
 }
 
 interface SheetFieldManagerProps {
   app: {
     id: string;
     google_sheet?: string;
-  };
-  onFieldChange?: (changed: boolean) => void;
+  }
+  google_sheet?: string
+  onFieldChange?: (changed: boolean, fields?: Field[]) => void
 }
 
 // Field type options
@@ -76,7 +76,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editedField, setEditedField] = useState<Field | null>(null);
   const [isDirty, setIsDirty] = useState<boolean>(false);
-  const supabase = createClient();
+  const [updateGlobalMetadata, setUpdateGlobalMetadata] = useState<boolean>(false);
   const queryClient = useQueryClient();
 
   // Function to check if fields have changed from original
@@ -126,7 +126,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const updateMetadata = useMutation({
     mutationFn: async (updatedColumns: Field[]) => {
       if (!app?.id || !app?.google_sheet) throw new Error("No sheet connection");
-
+      
       // Call our dashboard sheets columns API to update
       const response = await fetch(
         `/api/dashboard/sheets/${app.id}/columns`,
@@ -135,13 +135,21 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ columns: updatedColumns }),
+          body: JSON.stringify({ 
+            columns: updatedColumns,
+            updateGlobal: updateGlobalMetadata // Include flag to update global metadata if needed
+          }),
         }
       );
-
+      
+      const responseStatus = response.status;
+      console.log('SheetFieldManager: API response status:', responseStatus);
+      
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('SheetFieldManager: API error:', errorText);
         throw new Error(
-          `Failed to update columns: ${response.status} ${response.statusText}`
+          `Failed to update columns: ${responseStatus} ${response.statusText} - ${errorText}`
         );
       }
 
@@ -167,36 +175,77 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   useEffect(() => {
     if (onFieldChange && fields.length > 0) {
       const changed = hasFieldsChanged();
-      onFieldChange(changed);
+      
+      // Pass both the changed status AND the current fields state
+      // This allows the parent to know what fields to save
+      onFieldChange(changed, fields);
       setIsDirty(changed);
     }
   }, [fields, originalFields, onFieldChange]);
 
   // Toggle field inclusion
   const toggleFieldInclusion = (id: string) => {
-    setFields((currentFields) =>
-      currentFields.map((field) =>
-        field.id === id ? { ...field, include: !field.active } : field
-      )
-    );
+    setFields((currentFields) => {
+      const newFields = currentFields.map((field) => {
+        if (field.id === id) {
+          const newActive = field.active === true ? false : true;
+          return { ...field, active: newActive };
+        }
+        return field;
+      });
+      return newFields;
+    });
     setIsDirty(true);
   };
 
   // Handle edit field modal
   const handleEditField = (field: Field) => {
+    
+    // Create a clean copy of the field with explicit boolean conversion
+    const cleanField = {
+      ...field,
+      active: field.active === true, // Force explicit boolean conversion
+      description: field.description || "",
+      options: field.options || [],
+      originalIndex: field.originalIndex || 0,
+      sampleData: field.sampleData || []
+    };
+    
     setIsEditing(field.id);
-    setEditedField({ ...field });
+    setEditedField(cleanField);
   };
 
   // Handle saving edited field
   const handleSaveEdit = () => {
     if (!editedField) return;
-
+    
+    // Find the current field state (to make sure we have the most recent active state)
+    const currentField = fields.find(f => f.id === editedField.id);
+    const currentActive = currentField?.active; // Get the current active state from fields array
+    
+    
+    // Create a clean object to avoid any potential proxy issues
+    const cleanEditedField = {
+      id: editedField.id,
+      name: editedField.name,
+      type: editedField.type,
+      description: editedField.description || "",
+      // Use the dialog's active state which should reflect any changes in the dialog
+      active: editedField.active === true, 
+      options: editedField.options || [],
+      originalIndex: editedField.originalIndex || 0,
+      sampleData: editedField.sampleData || []
+    };
+    
+    
+    // Update the fields state with the edited field
     setFields((currentFields) =>
       currentFields.map((field) =>
-        field.id === editedField.id ? { ...editedField } : field
+        field.id === editedField.id ? cleanEditedField : field
       )
     );
+    
+    // Close the dialog
     setIsEditing(null);
     setEditedField(null);
     setIsDirty(true);
@@ -230,8 +279,72 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
             />
             Refresh Fields
           </Button>
+          {isDirty && (
+            <Button
+              size="sm"
+              onClick={() => {
+                // Check if any fields are inactive
+                const anyInactive = fields.some(f => f.active === false);
+                
+                // Ensure we're explicitly setting active as boolean values and all properties are clean
+                const updatedColumns = fields.map(field => {
+                  // Create a clean object without any potential proxy issues
+                  const cleanField = {
+                    id: field.id,
+                    name: field.name,
+                    type: field.type,
+                    description: field.description || "",
+                    options: field.options || [],
+                    originalIndex: field.originalIndex || 0,
+                    active: field.active === true // Force strict boolean conversion
+                  };
+                  
+                  // Double-check the active state is correctly set
+                  if (cleanField.active !== true && cleanField.active !== false) {
+                    console.warn(`Field ${field.id} has non-boolean active value: ${field.active}. Defaulting to true.`);
+                    cleanField.active = true;
+                  }
+                  
+                  return cleanField;
+                });
+                
+                // Debug output - show any inactive fields
+                if (anyInactive) {
+                  const inactiveFields = updatedColumns.filter(f => f.active === false);
+                }
+                
+                updateMetadata.mutate(updatedColumns);
+              }}
+              className="flex items-center gap-1"
+              disabled={!isDirty || isLoading || updateMetadata.isPending}
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              Save Changes
+            </Button>
+          )}
         </div>
       </div>
+      
+      {/* Global metadata update toggle */}
+      {isDirty && (
+        <Alert className="mb-4 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Update global metadata?</AlertTitle>
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-sm">Enable this to update the global sheet definition for all apps.</span>
+            <div className="flex items-center space-x-2">
+              <Switch 
+                id="updateGlobal" 
+                checked={updateGlobalMetadata} 
+                onCheckedChange={setUpdateGlobalMetadata}
+              />
+              <Label htmlFor="updateGlobal" className="text-sm">
+                {updateGlobalMetadata ? "Yes" : "No"}
+              </Label>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center items-center h-40">
@@ -297,7 +410,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                                   {field.description}
                                 </p>
                               )}
-                              {field.sampleData && field.sampleData.length > 0 && (
+                              {field.sampleData &&
+                              field.sampleData.length > 0 && (
                                 <div className="mt-1 flex items-center">
                                   <span className="text-xs text-gray-500">
                                     Sample: {field.sampleData[0]}
