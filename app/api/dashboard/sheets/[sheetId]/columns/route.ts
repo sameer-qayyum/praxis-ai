@@ -102,7 +102,7 @@ export async function GET(
     // Fallback to global metadata if app doesn't have its own data_model
     const { data: connection, error: connectionError } = await supabase
       .from("google_sheets_connections")
-      .select("id, sheet_id, columns_metadata")
+      .select("id, sheet_id, sheet_name, columns_metadata")
       .eq("id", app.google_sheet)
       .single();
     
@@ -140,7 +140,7 @@ export async function GET(
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
     
     // Call the internal sheets columns API with service role key
-    const sheetsColumnsUrl = `${baseUrl}/api/sheets/${sheetId}/columns`;
+    const sheetsColumnsUrl = `${baseUrl}/api/sheets/${sheetId}/columns` + (connection.sheet_name ? `?sheet=${encodeURIComponent(connection.sheet_name)}` : "");
     const response = await fetch(sheetsColumnsUrl, {
       method: "GET",
       headers: {
@@ -247,13 +247,6 @@ export async function PUT(
     // Parse the request body
     const body = await request.json();
     const { columns, updateGlobal = false } = body;
-    
-    console.log('PUT /api/dashboard/sheets/[sheetId]/columns - Request body:', {
-      appId, 
-      columnsCount: columns?.length || 0,
-      updateGlobal,
-      bodyReceived: !!body
-    });
     
     if (!columns || !Array.isArray(columns)) {
       return NextResponse.json(

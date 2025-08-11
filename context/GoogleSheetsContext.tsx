@@ -460,14 +460,15 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
   }, [searchQuery, sortBy, sortOrder])
   
   // Get columns and data from a sheet
-  const getSheetColumns = async (sheetId: string): Promise<SheetColumnsResponse> => {
+  const getSheetColumns = async (sheetId: string, sheetTabName?: string): Promise<SheetColumnsResponse> => {
     try {
       const session = await supabase.auth.getSession()
       if (!session?.data?.session) {
         throw new Error("User is not authenticated")
       }
       
-      const response = await fetch(`/api/sheets/${sheetId}/columns`)
+      const url = `/api/sheets/${sheetId}/columns` + (sheetTabName ? `?sheet=${encodeURIComponent(sheetTabName)}` : "")
+      const response = await fetch(url)
       
       if (!response.ok) {
         // Check if token is expired
@@ -477,7 +478,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
             // Token expired - try refreshing and calling again
             const refreshed = await refreshConnectionStatus()
             if (refreshed) {
-              return await getSheetColumns(sheetId) // Retry after refresh
+              return await getSheetColumns(sheetId, sheetTabName) // Retry after refresh, preserve sheet tab name
             }
           }
         }
@@ -654,7 +655,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
   // Check for changes between saved columns metadata and actual Google Sheet columns
   const checkSheetColumnChanges = async (sheetId: string): Promise<ColumnSyncResult | null> => {
     try {
-      console.log(`🔍 Starting column sync check for sheet: ${sheetId}`);
       
       // Get saved connection data if it exists
       const savedConnection = await getSheetConnection(sheetId);
@@ -670,7 +670,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       
       // If we don't have saved metadata, all columns are "new"
       if (!savedConnection || !savedConnection.columns_metadata || !Array.isArray(savedConnection.columns_metadata)) {
-        console.log('❌ No saved connection or columns metadata found for this sheet');
         return {
           hasChanges: false, // No real changes since we're starting fresh
           changes: [],
@@ -688,10 +687,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       
       const savedColumns = savedConnection.columns_metadata;
       const currentColumns = sheetData.columns;
-      
-      console.log('📋 SAVED COLUMNS:', JSON.stringify(savedColumns, null, 2));
-      console.log('📋 CURRENT COLUMNS:', JSON.stringify(currentColumns, null, 2));
-      console.log(`📊 Comparing ${savedColumns.length} saved columns with ${currentColumns.length} current columns`);
       
       // Track all changes
       const changes: ColumnChange[] = [];
@@ -713,13 +708,9 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         ])
       );
       
-      console.log('🗺️ Saved column names:', [...savedColumnMap.keys()]);
-      console.log('🗺️ Current column names:', [...currentColumnMap.keys()]);
-      
       // Check for removed columns (in saved but not in current)
       savedColumns.forEach((col: any, index: number) => {
         const exists = currentColumnMap.has(col.name);
-        console.log(`❓ Checking if column '${col.name}' exists in current sheet: ${exists ? '✅ Exists' : '❌ Removed'}`);
         
         if (!exists) {
           console.log(`🛈 FOUND REMOVED COLUMN: '${col.name}' at index ${index}`);
@@ -737,7 +728,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         
         if (!savedColumn) {
           // This is a new column
-          console.log(`➕ FOUND NEW COLUMN: '${col.name}' at index ${currentIndex}`);
           changes.push({
             type: 'added',
             name: col.name,
@@ -745,7 +735,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           });
         } else if (savedColumn.index !== currentIndex) {
           // Column exists but position changed
-          console.log(`🔄 FOUND REORDERED COLUMN: '${col.name}' moved from index ${savedColumn.index} to ${currentIndex}`);
           changes.push({
             type: 'reordered',
             name: col.name,
@@ -754,7 +743,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
           });
         } else {
           // Column is unchanged
-          console.log(`✔️ UNCHANGED COLUMN: '${col.name}' at index ${currentIndex}`);
           changes.push({
             type: 'unchanged',
             name: col.name,
@@ -819,11 +807,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       }
       
       const hasChanges = changes.some(change => change.type !== 'unchanged');
-      console.log(`📊 COLUMN CHANGES SUMMARY: ${hasChanges ? '⚠️ Changes detected' : '✅ No changes'}`);
-      console.log(`- Added: ${addedColumns}`);
-      console.log(`- Removed: ${removedColumns}`);
-      console.log(`- Reordered: ${reorderedColumns}`);
-      console.log(`- Final merged column count: ${finalMergedColumns.length}`);
       
       return {
         hasChanges: hasChanges,

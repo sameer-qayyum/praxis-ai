@@ -203,6 +203,10 @@ export async function GET(
     
     // Call Google Sheets API to get the sheet data
     const sheetId = params.sheetId;
+    // Optional sheet/tab name from query string, URL-decoded
+    const url = new URL(request.url);
+    const sheetParam = url.searchParams.get("sheet");
+    const sheetPrefix = sheetParam ? `${encodeURIComponent(sheetParam)}!` : "";
     
     // Use a wider range to support more columns (up to 500)
     const MAX_COLUMN_FETCH = 500;
@@ -210,7 +214,7 @@ export async function GET(
     
     // First, get the first row (headers)
     const headersResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:${endColumnLetter}1`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetPrefix}A1:${endColumnLetter}1`,
       {
         headers: {
           Authorization: `Bearer ${credentials.access_token}`,
@@ -239,7 +243,7 @@ export async function GET(
 
     // Get sample data (first 5 rows after header) - using same column range as headers
     const samplesResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A2:${endColumnLetter}6`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetPrefix}A2:${endColumnLetter}6`,
       {
         headers: {
           Authorization: `Bearer ${credentials.access_token}`,

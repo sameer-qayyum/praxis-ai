@@ -201,7 +201,6 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       );
       
       const responseStatus = response.status;
-      console.log('SheetFieldManager: API response status:', responseStatus);
       
       if (!response.ok) {
         const errorText = await response.text();
