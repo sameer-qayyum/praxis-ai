@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, DroppableProvided, DraggableProvided } from "@hello-pangea/dnd";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -28,10 +29,20 @@ import {
   InfoIcon,
   AlertCircle,
   Plus,
+  Type as TypeIcon,
+  Hash,
+  CheckCircle,
+  Calendar,
+  Mail,
+  Link as LinkIcon,
+  Phone,
+  List,
+  CheckSquare,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { createClient } from "@/lib/supabase/client";
 
 // Field interface based on ReviewFields component
 interface Field {
@@ -54,18 +65,20 @@ interface SheetFieldManagerProps {
   onFieldChange?: (changed: boolean, fields?: Field[]) => void
 }
 
-// Field type options
+// Field type options with icons and descriptions
 const fieldTypes = [
-  { value: "text", label: "Text" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Boolean (Yes/No)" },
-  { value: "date", label: "Date" },
-  { value: "email", label: "Email" },
-  { value: "url", label: "URL" },
-  { value: "tel", label: "Phone Number" },
-  { value: "dropdown", label: "Dropdown (Single Select)" },
-  { value: "checkbox", label: "Checkbox Group (Multi Select)" },
-];
+  { value: "text", label: "Text", icon: TypeIcon, description: "Free-form text values." },
+  { value: "number", label: "Number", icon: Hash, description: "Numeric values that can be summed or averaged." },
+  { value: "boolean", label: "Boolean (Yes/No)", icon: CheckCircle, description: "True/false values rendered as a toggle." },
+  { value: "date", label: "Date", icon: Calendar, description: "Calendar dates with appropriate formatting." },
+  { value: "email", label: "Email", icon: Mail, description: "Email addresses with basic validation." },
+  { value: "url", label: "URL", icon: LinkIcon, description: "Web links, rendered as clickable anchors." },
+  { value: "tel", label: "Phone Number", icon: Phone, description: "Telephone numbers with dialing support." },
+  { value: "dropdown", label: "Dropdown (Single Select)", icon: List, description: "Choose a single value from predefined options." },
+  { value: "checkbox", label: "Checkbox Group (Multi Select)", icon: CheckSquare, description: "Select multiple values from predefined options." },
+] as const;
+
+const getTypeMeta = (value: string) => fieldTypes.find((t) => t.value === value);
 
 export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   app,
@@ -88,9 +101,33 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     options: [],
   });
   const [newOption, setNewOption] = useState<string>("");
+  const [editNewOption, setEditNewOption] = useState<string>("");
   const isOptionsType = (t: string) => t === "dropdown" || t === "checkbox";
 
   const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  // Related apps that use the same google_sheet connection
+  const {
+    data: relatedApps,
+    isLoading: isLoadingRelatedApps,
+    isError: isRelatedAppsError,
+    error: relatedAppsError,
+  } = useQuery<{ id: string; name: string }[] | null>({
+    queryKey: ["related-apps", app?.google_sheet, app?.id],
+    queryFn: async () => {
+      if (!app?.google_sheet) return [];
+      const { data, error } = await supabase
+        .from("apps")
+        .select("id,name")
+        .eq("google_sheet", app.google_sheet)
+        .neq("id", app.id);
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!app?.google_sheet,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Helper to compute next available custom index to avoid duplicate IDs
   const findNextCustomIndex = (existingFields: Field[], startFrom: number) => {
@@ -373,141 +410,195 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
           setNewOption("");
         }
       }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Field</DialogTitle>
-            <DialogDescription>
-              Define the metadata for the new field.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="newFieldName">Field Name</Label>
-              <Input
-                id="newFieldName"
-                value={newFieldDraft.name}
-                onChange={(e) => setNewFieldDraft((d) => ({ ...d, name: e.target.value }))}
-                placeholder="e.g. customer_id"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newFieldType">Type</Label>
-              <Select
-                value={newFieldDraft.type}
-                onValueChange={(val) => setNewFieldDraft((d) => ({ ...d, type: val }))}
-              >
-                <SelectTrigger id="newFieldType">
-                  <SelectValue placeholder="Select a type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {fieldTypes.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newFieldDesc">Description</Label>
-              <Textarea
-                id="newFieldDesc"
-                value={newFieldDraft.description}
-                onChange={(e) => setNewFieldDraft((d) => ({ ...d, description: e.target.value }))}
-                placeholder="Optional description"
-              />
-            </div>
-            {isOptionsType(newFieldDraft.type) && (
-              <div className="space-y-2">
-                <Label>Options</Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Add an option and press Add"
-                    value={newOption}
-                    onChange={(e) => setNewOption(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (newOption.trim()) {
-                          setNewFieldDraft(d => ({ ...d, options: [...d.options, newOption.trim()] }));
-                          setNewOption("");
-                        }
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      if (newOption.trim()) {
-                        setNewFieldDraft(d => ({ ...d, options: [...d.options, newOption.trim()] }));
-                        setNewOption("");
-                      }
-                    }}
-                  >
-                    Add
-                  </Button>
-                </div>
-                {newFieldDraft.options.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {newFieldDraft.options.map((opt, idx) => (
-                      <div key={`${opt}-${idx}`} className="flex items-center gap-1 border rounded px-2 py-1 text-sm">
-                        <span>{opt}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setNewFieldDraft(d => ({...d, options: d.options.filter((_, i) => i !== idx)}))}
-                        >
-                          ×
-                        </Button>
-                      </div>
-                    ))}
+       <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
+  <DialogHeader className="flex-shrink-0">
+    <DialogTitle>Add New Field</DialogTitle>
+    <DialogDescription>
+      Define the metadata for the new field.
+    </DialogDescription>
+  </DialogHeader>
+  
+  <ScrollArea className="flex-1 pr-4">
+    <div className="space-y-4 py-2">
+      <div className="space-y-2">
+        <Label htmlFor="newFieldName">Field Name</Label>
+        <Input
+          id="newFieldName"
+          value={newFieldDraft.name}
+          onChange={(e) => setNewFieldDraft((d) => ({ ...d, name: e.target.value }))}
+          placeholder="e.g. customer_id"
+        />
+      </div>
+      
+      <div className="space-y-2">
+        <Label htmlFor="newFieldType">Type</Label>
+        <Select
+          value={newFieldDraft.type}
+          onValueChange={(val) => setNewFieldDraft((d) => ({ ...d, type: val }))}
+        >
+          <SelectTrigger id="newFieldType">
+            <SelectValue placeholder="Select a type" />
+          </SelectTrigger>
+          <SelectContent className="max-h-[300px]">
+            {fieldTypes.map((t) => (
+              <SelectItem key={t.value} value={t.value} className="py-3">
+                <div className="flex items-start gap-3">
+                  <t.icon className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{t.label}</div>
+                    <div className="text-xs text-muted-foreground">{t.description}</div>
                   </div>
-                )}
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label htmlFor="newFieldActive">Include</Label>
-                <p className="text-xs text-muted-foreground">Enable to include this field in the app.</p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="newFieldActive"
-                  checked={newFieldDraft.active}
-                  onCheckedChange={(checked) => setNewFieldDraft((d) => ({ ...d, active: !!checked }))}
-                />
-                <Label htmlFor="newFieldActive">{newFieldDraft.active ? "Included" : "Excluded"}</Label>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button onClick={confirmAddField} disabled={!newFieldDraft.name.trim() || (isOptionsType(newFieldDraft.type) && newFieldDraft.options.length === 0)}>
-              Add Field
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {getTypeMeta(newFieldDraft.type)?.description}
+        </p>
+      </div>
+      
+      {isOptionsType(newFieldDraft.type) && (
+        <div className="space-y-2">
+          <Label>Options</Label>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Add an option and press Add"
+              value={newOption}
+              onChange={(e) => setNewOption(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (newOption.trim()) {
+                    setNewFieldDraft(d => ({ ...d, options: [...d.options, newOption.trim()] }));
+                    setNewOption("");
+                  }
+                }
+              }}
+            />
+            <Button
+              type="button"
+              onClick={() => {
+                if (newOption.trim()) {
+                  setNewFieldDraft(d => ({ ...d, options: [...d.options, newOption.trim()] }));
+                  setNewOption("");
+                }
+              }}
+            >
+              Add
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </div>
+          {newFieldDraft.options.length > 0 && (
+            <ScrollArea className="max-h-[120px]">
+              <div className="flex flex-wrap gap-2 mt-2">
+                {newFieldDraft.options.map((opt, idx) => (
+                  <div key={`${opt}-${idx}`} className="flex items-center gap-1 border rounded px-2 py-1 text-sm">
+                    <span>{opt}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setNewFieldDraft(d => ({...d, options: d.options.filter((_, i) => i !== idx)}))}
+                    >
+                      ×
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </div>
+      )}
+      
+      <div className="space-y-2">
+        <Label htmlFor="newFieldDesc">Description</Label>
+        <Textarea
+          id="newFieldDesc"
+          value={newFieldDraft.description}
+          onChange={(e) => setNewFieldDraft((d) => ({ ...d, description: e.target.value }))}
+          placeholder="Optional description"
+          className="min-h-[80px] resize-none"
+        />
+      </div>
+      
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <Label htmlFor="newFieldActive">Include</Label>
+          <p className="text-xs text-muted-foreground">Enable to include this field in the app.</p>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="newFieldActive"
+            checked={newFieldDraft.active}
+            onCheckedChange={(checked) => setNewFieldDraft((d) => ({ ...d, active: !!checked }))}
+          />
+          <Label htmlFor="newFieldActive">{newFieldDraft.active ? "Included" : "Excluded"}</Label>
+        </div>
+      </div>
+    </div>
+  </ScrollArea>
+  
+  <DialogFooter className="flex-shrink-0 pt-4 border-t">
+    <DialogClose asChild>
+      <Button variant="outline">Cancel</Button>
+    </DialogClose>
+    <Button onClick={confirmAddField} disabled={!newFieldDraft.name.trim() || (isOptionsType(newFieldDraft.type) && newFieldDraft.options.length === 0)}>
+      Add Field
+    </Button>
+  </DialogFooter>
+</DialogContent>
       </Dialog>
       
-      {/* Global metadata update toggle */}
+      {/* Global metadata update toggle - prominent with preview */}
       {isDirty && (
-        <Alert className="mb-4 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900">
+        <Alert className="mb-4 border-amber-300 bg-amber-50/80 dark:bg-amber-900/20 dark:border-amber-700">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Update global metadata?</AlertTitle>
-          <AlertDescription className="flex items-center justify-between">
-            <span className="text-sm">Enable this to update the global sheet definition for all apps.</span>
-            <div className="flex items-center space-x-2">
-              <Switch 
-                id="updateGlobal" 
-                checked={updateGlobalMetadata} 
-                onCheckedChange={setUpdateGlobalMetadata}
-              />
-              <Label htmlFor="updateGlobal" className="text-sm">
-                {updateGlobalMetadata ? "Yes" : "No"}
-              </Label>
+          <AlertTitle className="flex items-center gap-2">
+            Update global metadata
+            {relatedApps && relatedApps.length > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                Affects {relatedApps.length} other {relatedApps.length === 1 ? 'app' : 'apps'}
+              </Badge>
+            )}
+          </AlertTitle>
+          <AlertDescription>
+            <div className="flex flex-col gap-3">
+              <p className="text-sm">
+                When enabled, changes will update the global column definition for this Google Sheet. Any other apps connected to the same sheet will receive these updates.
+              </p>
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  {isLoadingRelatedApps ? (
+                    <p className="text-xs text-muted-foreground">Checking other apps…</p>
+                  ) : isRelatedAppsError ? (
+                    <p className="text-xs text-red-600">Failed to load related apps: {(relatedAppsError as Error)?.message}</p>
+                  ) : relatedApps && relatedApps.length > 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      <p className="mb-1">Will affect:</p>
+                      <ul className="list-disc ml-5 space-y-0.5">
+                        {relatedApps.slice(0, 5).map((a) => (
+                          <li key={a.id} className="truncate">{a.name || a.id}</li>
+                        ))}
+                      </ul>
+                      {relatedApps.length > 5 && (
+                        <p className="mt-1">+ {relatedApps.length - 5} more…</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No other apps will be affected.</p>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="updateGlobal"
+                    checked={updateGlobalMetadata}
+                    onCheckedChange={setUpdateGlobalMetadata}
+                  />
+                  <Label htmlFor="updateGlobal" className="text-sm">
+                    {updateGlobalMetadata ? "Enabled" : "Disabled"}
+                  </Label>
+                </div>
+              </div>
             </div>
           </AlertDescription>
         </Alert>
@@ -627,84 +718,136 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       )}
 
       {/* Edit Field Dialog */}
-      <Dialog open={isEditing !== null} onOpenChange={(open) => !open && setIsEditing(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+      <Dialog open={isEditing !== null} onOpenChange={(open) => {
+        if (!open) {
+          setIsEditing(null);
+          setEditNewOption("");
+        }
+      }}>
+        <DialogContent className="max-w-lg w-full sm:w-[560px] max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Edit Field</DialogTitle>
             <DialogDescription>
               Modify the properties of this field.
             </DialogDescription>
           </DialogHeader>
           {editedField && (
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label htmlFor="fieldName">Field Name</Label>
-                <Input
-                  id="fieldName"
-                  value={editedField.name}
-                  onChange={(e) =>
-                    setEditedField({ ...editedField, name: e.target.value })
-                  }
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="fieldType">Field Type</Label>
-                <Select
-                  value={editedField.type}
-                  onValueChange={(value) =>
-                    setEditedField({ ...editedField, type: value })
-                  }
-                >
-                  <SelectTrigger id="fieldType">
-                    <SelectValue placeholder="Select field type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fieldTypes.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="fieldDesc">Description</Label>
-                <Textarea
-                  id="fieldDesc"
-                  value={editedField.description}
-                  onChange={(e) =>
-                    setEditedField({
-                      ...editedField,
-                      description: e.target.value,
-                    })
-                  }
-                  placeholder="Describe this field"
-                />
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="fieldInclude"
-                  checked={editedField.active}
-                  onCheckedChange={(checked) =>
-                    setEditedField({
-                      ...editedField,
-                      active: checked === true,
-                    })
-                  }
-                />
-                <label
-                  htmlFor="fieldInclude"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  Include this field in the app
-                </label>
-              </div>
+            <div className="flex-1 overflow-hidden">
+              <ScrollArea className="h-full pr-4">
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="fieldName" className="text-sm font-medium text-foreground">Field Name</Label>
+                    <Input
+                      id="fieldName"
+                      value={editedField.name}
+                      onChange={(e) => setEditedField({ ...editedField, name: e.target.value })}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="fieldType" className="text-sm font-medium text-foreground">Field Type</Label>
+                    <Select
+                      value={editedField.type}
+                      onValueChange={(value) => setEditedField({ ...editedField, type: value })}
+                    >
+                      <SelectTrigger id="fieldType" className="w-full">
+                        <SelectValue placeholder="Select field type" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[320px] overflow-y-auto" position="popper" sideOffset={4}>
+                        {fieldTypes.map((type) => (
+                          <SelectItem key={type.value} value={type.value} className="py-3">
+                            <div className="flex items-start gap-3">
+                              <type.icon className="h-4 w-4 mt-0.5" />
+                              <div>
+                                <div className="text-sm font-medium">{type.label}</div>
+                              </div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">{getTypeMeta(editedField.type)?.description}</p>
+                  </div>
+                  {isOptionsType(editedField.type) && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-foreground">Options</Label>
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                        <Input
+                          placeholder="Add an option and press Add"
+                          value={editNewOption}
+                          onChange={(e) => setEditNewOption(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const val = editNewOption.trim();
+                              if (val) {
+                                setEditedField({ ...editedField, options: [...(editedField.options || []), val] });
+                                setEditNewOption("");
+                              }
+                            }
+                          }}
+                          className="w-full"
+                        />
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const val = editNewOption.trim();
+                            if (val) {
+                              setEditedField({ ...editedField, options: [...(editedField.options || []), val] });
+                              setEditNewOption("");
+                            }
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                      {editedField.options && editedField.options.length > 0 && (
+                        <div className="max-h-[140px] overflow-y-auto border rounded-md p-2 bg-muted/30">
+                          <div className="flex flex-wrap gap-2">
+                            {editedField.options.map((opt: any, idx: number) => (
+                              <div key={`${opt}-${idx}`} className="flex items-center gap-1 border rounded px-2 py-1 text-sm bg-background">
+                                <span>{String(opt)}</span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-4 w-4 p-0"
+                                  onClick={() => setEditedField({ ...editedField, options: (editedField.options || []).filter((_: any, i: number) => i !== idx) })}
+                                >
+                                  ×
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="fieldDesc" className="text-sm font-medium text-foreground">Description</Label>
+                    <Textarea
+                      id="fieldDesc"
+                      value={editedField.description}
+                      onChange={(e) => setEditedField({ ...editedField, description: e.target.value })}
+                      placeholder="Describe this field"
+                      className="w-full min-h-[80px] resize-none"
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2 border-t pt-3">
+                    <Checkbox
+                      id="fieldInclude"
+                      checked={editedField.active}
+                      onCheckedChange={(checked) => setEditedField({ ...editedField, active: checked === true })}
+                    />
+                    <label htmlFor="fieldInclude" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      Include this field in the app
+                    </label>
+                  </div>
+                </div>
+              </ScrollArea>
             </div>
           )}
-          <DialogFooter className="flex justify-end space-x-2">
+          <DialogFooter className="flex-shrink-0 pt-4 border-t">
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
