@@ -83,20 +83,35 @@ GoogleSheetPanel
 |-----------|-------|--------|
 | GoogleSheetPanel | modifiedFields | Tracks field changes from SheetFieldManager |
 | GoogleSheetPanel | hasChanges | Controls visibility of save buttons |
+| GoogleSheetPanel | fieldsVersion | Forces remount of `SheetFieldManager` after save to reset local state |
 | SheetFieldManager | fields | Current field configuration |
 | SheetFieldManager | originalFields | Initial field state for comparison |
 | SheetFieldManager | isDirty | Tracks unsaved changes |
 | SheetFieldManager | isEditing | Controls edit dialog visibility |
 | SheetFieldManager | editedField | Field being edited in dialog |
+| SheetFieldManager | customFieldCounter | Tracks last used index for IDs like `custom-N`; initialized from loaded fields |
 
 ### UI Elements
 
 - **Toggle Switch**: Enables/disables field inclusion in app
-- **Save Button**: Saves current field configuration
+- **Field changes detected (bottom bar)**: Single save surface in `GoogleSheetPanel` that appears when changes exist
+- **Save Button (bottom bar)**: Saves current field configuration (no separate save within `SheetFieldManager`)
 - **Refresh Button**: Reloads field data from API
 - **Edit Button**: Opens field edit dialog
 - **Drag Handles**: Allows reordering of fields
 - **Edit Dialog**: Form for modifying field properties
+
+#### Add Field Dialog (SheetFieldManager)
+
+- Collects: `name`, `type`, `description`, `active`
+- For `dropdown` and `checkbox` types, supports adding/removing `options`
+- Validation: name required; options required for option types; confirms only when valid
+- New fields get unique IDs like `custom-N` (we compute next available to avoid duplicates)
+
+##### How updateGlobal is set when adding a field
+
+- `SheetFieldManager` sets an internal `updateGlobalMetadata` flag to `true` when you confirm the Add Field dialog. This ensures intent to persist globally.
+- However, the actual save is centralized in `GoogleSheetPanel`, which currently always sends `updateGlobal: true` in the request body. So, regardless of the internal flag, saves are treated as global.
 
 ### Data Persistence Flow
 
@@ -113,17 +128,39 @@ GoogleSheetPanel
    Update fields state → setIsDirty(true) → onFieldChange callback
    ```
 
-3. **Save Changes**
+3. **Save Changes (metadata + write to Google Sheet)**
    ```
-   User clicks Save Fields Only → handleSaveFieldsOnly() → saveFieldsMutation → 
-   PUT /api/dashboard/sheets/[sheetId]/columns → API updates app data_model in database
+   User clicks Save Fields Only → handleSaveFieldsOnly() → saveFieldsMutation →
+   PUT /api/dashboard/sheets/[appId]/columns { updateGlobal: true, columns } → metadata saved →
+   resolve sheet_id from google_sheets_connections using app.google_sheet (connection id) →
+   useGoogleSheets.writeSheetColumns(sheet_id, columns) → attempt to write to actual Google Sheet
+   → on success: invalidate ["sheet-columns", app.id] and increment fieldsVersion (remount child) → bottom bar hides
    ```
+
+#### Local vs Global behavior
+
+- The `updateGlobal` boolean in the PUT body determines scope.
+- Current behavior: `GoogleSheetPanel` always sets `updateGlobal: true` (global changes).
+- If local-only behavior is desired, add a UI toggle in `GoogleSheetPanel` and pass `updateGlobal: false` accordingly.
 
 4. **Regenerate App**
    ```
-   User clicks Save & Regenerate App → saveFieldsMutation → 
+   User clicks Save & Regenerate App → saveFieldsMutation (same as above: metadata + writeSheetColumns) →
    POST /api/apps/[appId]/regenerate → API updates app and rebuilds
    ```
+
+### Persistence to Google Sheet
+
+- Connection resolution: `app.google_sheet` stores `google_sheets_connections.id`. We query that row to get `sheet_id`.
+- Write call: `useGoogleSheets.writeSheetColumns(sheet_id, columns)` invokes an Edge Function to sync columns to the Sheet (e.g., add/rename/reorder depending on backend logic).
+- If write fails, we log but do not block the metadata save; UI still resets and bottom bar hides.
+
+### Edge Cases and Notes
+
+- Reordering or toggling active triggers the same save flow (metadata + attempted Sheet write).
+- Options are saved in metadata and sent to the write function; actual Sheet enforcement depends on backend implementation.
+- After save: parent clears `hasChanges`/`modifiedFields`, invalidates React Query, and forces `SheetFieldManager` remount via `fieldsVersion` to reset local dirty/original state.
+- New custom fields always use an unused `custom-N` id; we initialize `customFieldCounter` from loaded data and skip taken IDs.
 
 ### Database Schema
 
@@ -170,6 +207,11 @@ To prevent Google Sheets API quota errors (429 status codes):
 3. Enhanced React Query configuration to prevent rate limiting
 4. Added comprehensive TypeScript interfaces for better type safety
 5. Improved error logging and handling
+6. Centralized saving on `GoogleSheetPanel` bottom bar (removed local save in `SheetFieldManager`)
+7. Added Add Field dialog with options for dropdown/checkbox types and validation
+8. After saving, also write columns to Google Sheet by resolving `sheet_id` and calling `writeSheetColumns`
+9. Fixed duplicate key issues by ensuring unique `custom-N` IDs for newly added fields
+10. Ensured bottom bar hides reliably after save by invalidating queries and forcing child remount
 
 ## Development Notes
 

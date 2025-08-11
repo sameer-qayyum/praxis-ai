@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { 
@@ -9,9 +8,8 @@ import {
   SelectTrigger,
   SelectValue, 
 } from "@/components/ui/select"
-import { Eye, Code2, RefreshCw, History, Database } from "lucide-react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Eye, RefreshCw, History, Database } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { GoogleSheetPanel } from "./GoogleSheetPanel"
 
 interface AppVersion {

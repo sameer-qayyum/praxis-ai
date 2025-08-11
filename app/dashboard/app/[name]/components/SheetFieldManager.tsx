@@ -25,9 +25,9 @@ import {
 import {
   GripVertical,
   RefreshCw,
-  CheckCircle2,
   InfoIcon,
   AlertCircle,
+  Plus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -77,7 +77,28 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const [editedField, setEditedField] = useState<Field | null>(null);
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [updateGlobalMetadata, setUpdateGlobalMetadata] = useState<boolean>(false);
+  const [customFieldCounter, setCustomFieldCounter] = useState<number>(0);
+  // Add Field dialog state
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState<boolean>(false);
+  const [newFieldDraft, setNewFieldDraft] = useState<{ name: string; description: string; type: string; active: boolean; options: string[] }>({
+    name: "",
+    description: "",
+    type: "text",
+    active: true,
+    options: [],
+  });
+  const [newOption, setNewOption] = useState<string>("");
+  const isOptionsType = (t: string) => t === "dropdown" || t === "checkbox";
+
   const queryClient = useQueryClient();
+
+  // Helper to compute next available custom index to avoid duplicate IDs
+  const findNextCustomIndex = (existingFields: Field[], startFrom: number) => {
+    const existingIds = new Set(existingFields.map((f) => f.id));
+    let idx = startFrom;
+    while (existingIds.has(`custom-${idx}`)) idx += 1;
+    return idx;
+  };
 
   // Function to check if fields have changed from original
   const hasFieldsChanged = () => {
@@ -168,6 +189,16 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     if (fieldData?.columns) {
       setFields(fieldData.columns);
       setOriginalFields(JSON.parse(JSON.stringify(fieldData.columns))); // Deep clone
+      // Initialize the custom field counter based on existing custom-* IDs
+      const maxCustom = fieldData.columns.reduce((max: number, f: Field) => {
+        const m = /^custom-(\d+)$/.exec(f.id || "");
+        if (m) {
+          const n = parseInt(m[1], 10);
+          return Number.isFinite(n) && n > max ? n : max;
+        }
+        return max;
+      }, 0);
+      setCustomFieldCounter(maxCustom);
     }
   }, [fieldData]);
 
@@ -263,6 +294,51 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     setIsDirty(true);
   };
 
+  // Add a new custom field and ensure global metadata update is enabled
+  // Open Add Field dialog
+  const addNewField = () => {
+    const nextIndex = customFieldCounter + 1;
+    setNewFieldDraft({
+      name: `field_${nextIndex}`,
+      description: "",
+      type: "text",
+      active: true,
+      options: [],
+    });
+    setIsAddDialogOpen(true);
+  };
+
+  // Confirm Add Field from dialog
+  const confirmAddField = () => {
+    // Find next available custom index to ensure unique ID
+    const nextIndex = findNextCustomIndex(fields, customFieldCounter + 1);
+    const newField: Field = {
+      id: `custom-${nextIndex}`,
+      name: newFieldDraft.name.trim() || `field_${nextIndex}`,
+      type: newFieldDraft.type,
+      description: newFieldDraft.description || "",
+      active: newFieldDraft.active === true,
+      options: isOptionsType(newFieldDraft.type) ? [...(newFieldDraft.options || [])] : [],
+      originalIndex: fields.length,
+      sampleData: [],
+    };
+
+    setFields((prev) => {
+      const updated = [...prev, newField];
+      if (onFieldChange) {
+        // Defer notifying parent to next tick to avoid React render warning
+        setTimeout(() => {
+          onFieldChange(true, updated);
+        }, 0);
+      }
+      return updated;
+    });
+    setCustomFieldCounter(nextIndex);
+    setIsDirty(true);
+    setUpdateGlobalMetadata(true);
+    setIsAddDialogOpen(false);
+  };
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex justify-between items-center mb-4">
@@ -279,51 +355,142 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
             />
             Refresh Fields
           </Button>
-          {isDirty && (
-            <Button
-              size="sm"
-              onClick={() => {
-                // Check if any fields are inactive
-                const anyInactive = fields.some(f => f.active === false);
-                
-                // Ensure we're explicitly setting active as boolean values and all properties are clean
-                const updatedColumns = fields.map(field => {
-                  // Create a clean object without any potential proxy issues
-                  const cleanField = {
-                    id: field.id,
-                    name: field.name,
-                    type: field.type,
-                    description: field.description || "",
-                    options: field.options || [],
-                    originalIndex: field.originalIndex || 0,
-                    active: field.active === true // Force strict boolean conversion
-                  };
-                  
-                  // Double-check the active state is correctly set
-                  if (cleanField.active !== true && cleanField.active !== false) {
-                    console.warn(`Field ${field.id} has non-boolean active value: ${field.active}. Defaulting to true.`);
-                    cleanField.active = true;
-                  }
-                  
-                  return cleanField;
-                });
-                
-                // Debug output - show any inactive fields
-                if (anyInactive) {
-                  const inactiveFields = updatedColumns.filter(f => f.active === false);
-                }
-                
-                updateMetadata.mutate(updatedColumns);
-              }}
-              className="flex items-center gap-1"
-              disabled={!isDirty || isLoading || updateMetadata.isPending}
-            >
-              <CheckCircle2 className="h-3 w-3" />
-              Save Changes
-            </Button>
-          )}
+          <Button
+            size="sm"
+            onClick={addNewField}
+            disabled={isLoading || updateMetadata.isPending}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add Field
+          </Button>
+          {/* Local Save button removed to keep a single save surface in GoogleSheetPanel */}
         </div>
       </div>
+      {/* Add Field Dialog */}
+      <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+        setIsAddDialogOpen(open);
+        if (!open) {
+          setNewOption("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Field</DialogTitle>
+            <DialogDescription>
+              Define the metadata for the new field.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="newFieldName">Field Name</Label>
+              <Input
+                id="newFieldName"
+                value={newFieldDraft.name}
+                onChange={(e) => setNewFieldDraft((d) => ({ ...d, name: e.target.value }))}
+                placeholder="e.g. customer_id"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newFieldType">Type</Label>
+              <Select
+                value={newFieldDraft.type}
+                onValueChange={(val) => setNewFieldDraft((d) => ({ ...d, type: val }))}
+              >
+                <SelectTrigger id="newFieldType">
+                  <SelectValue placeholder="Select a type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fieldTypes.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newFieldDesc">Description</Label>
+              <Textarea
+                id="newFieldDesc"
+                value={newFieldDraft.description}
+                onChange={(e) => setNewFieldDraft((d) => ({ ...d, description: e.target.value }))}
+                placeholder="Optional description"
+              />
+            </div>
+            {isOptionsType(newFieldDraft.type) && (
+              <div className="space-y-2">
+                <Label>Options</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Add an option and press Add"
+                    value={newOption}
+                    onChange={(e) => setNewOption(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newOption.trim()) {
+                          setNewFieldDraft(d => ({ ...d, options: [...d.options, newOption.trim()] }));
+                          setNewOption("");
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      if (newOption.trim()) {
+                        setNewFieldDraft(d => ({ ...d, options: [...d.options, newOption.trim()] }));
+                        setNewOption("");
+                      }
+                    }}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {newFieldDraft.options.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {newFieldDraft.options.map((opt, idx) => (
+                      <div key={`${opt}-${idx}`} className="flex items-center gap-1 border rounded px-2 py-1 text-sm">
+                        <span>{opt}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setNewFieldDraft(d => ({...d, options: d.options.filter((_, i) => i !== idx)}))}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <Label htmlFor="newFieldActive">Include</Label>
+                <p className="text-xs text-muted-foreground">Enable to include this field in the app.</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="newFieldActive"
+                  checked={newFieldDraft.active}
+                  onCheckedChange={(checked) => setNewFieldDraft((d) => ({ ...d, active: !!checked }))}
+                />
+                <Label htmlFor="newFieldActive">{newFieldDraft.active ? "Included" : "Excluded"}</Label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={confirmAddField} disabled={!newFieldDraft.name.trim() || (isOptionsType(newFieldDraft.type) && newFieldDraft.options.length === 0)}>
+              Add Field
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       
       {/* Global metadata update toggle */}
       {isDirty && (
