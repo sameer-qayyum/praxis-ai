@@ -43,6 +43,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { createClient } from "@/lib/supabase/client";
+import { useGoogleSheets, type ColumnSyncResult, type ColumnChange } from "@/context/GoogleSheetsContext";
 
 // Field interface based on ReviewFields component
 interface Field {
@@ -91,6 +92,12 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [updateGlobalMetadata, setUpdateGlobalMetadata] = useState<boolean>(false);
   const [customFieldCounter, setCustomFieldCounter] = useState<number>(0);
+  const [currentSheetId, setCurrentSheetId] = useState<string | undefined>(undefined);
+  const [syncResult, setSyncResult] = useState<ColumnSyncResult | null>(null);
+  const [changeMap, setChangeMap] = useState<Record<string, ColumnChange["type"]>>({});
+  // Rename helpers for better badges
+  const [renameOldToNew, setRenameOldToNew] = useState<Record<string, string>>({});
+  const [renameNewToOld, setRenameNewToOld] = useState<Record<string, string>>({});
   // Add Field dialog state
   const [isAddDialogOpen, setIsAddDialogOpen] = useState<boolean>(false);
   const [newFieldDraft, setNewFieldDraft] = useState<{ name: string; description: string; type: string; active: boolean; options: string[] }>({
@@ -106,6 +113,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
 
   const queryClient = useQueryClient();
   const supabase = createClient();
+  const { checkSheetColumnChanges, isConnected } = useGoogleSheets();
 
   // Related apps that use the same google_sheet connection
   const {
@@ -135,6 +143,44 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     let idx = startFrom;
     while (existingIds.has(`custom-${idx}`)) idx += 1;
     return idx;
+  };
+
+  // Build displayed fields for preview when syncResult exists so users can see added columns
+  const buildDisplayedFields = (): Field[] => {
+    if (!syncResult || !syncResult.hasChanges) return fields;
+    const existingByName = new Map<string, Field>(fields.map(f => [f.name, f]));
+    const existingById = new Map<string, Field>(fields.map(f => [f.id, f]));
+    const renameMapNewToOld = new Map<string, string>();
+    for (const ch of syncResult.changes) {
+      if (ch.type === 'renamed' && ch.oldName) renameMapNewToOld.set(ch.name, ch.oldName);
+    }
+    const activeMerged = syncResult.mergedColumns.filter((c: any) => !c.isRemoved);
+    const preview: Field[] = activeMerged.map((c: any, idx: number) => {
+      let existing = existingByName.get(c.name);
+      if (!existing && c.id) existing = existingById.get(String(c.id));
+      if (!existing) {
+        const oldName = renameMapNewToOld.get(c.name);
+        if (oldName) existing = existingByName.get(oldName);
+      }
+      if (existing) {
+        return {
+          ...existing,
+          originalIndex: idx,
+        };
+      }
+      // New column preview (type defaults to text)
+      return {
+        id: `temp-${idx}`,
+        name: c.name,
+        type: "text",
+        description: "",
+        options: [],
+        active: true,
+        originalIndex: idx,
+        sampleData: c.sampleData || [],
+      } as Field;
+    });
+    return preview;
   };
 
   // Function to check if fields have changed from original
@@ -237,6 +283,13 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       setCustomFieldCounter(maxCustom);
     }
   }, [fieldData]);
+
+  // Store sheetId returned by API for later direct checks
+  useEffect(() => {
+    if (fieldData?.sheetId) {
+      setCurrentSheetId(fieldData.sheetId as string);
+    }
+  }, [fieldData?.sheetId]);
 
   // Notify parent component of changes
   useEffect(() => {
@@ -375,6 +428,118 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     setIsAddDialogOpen(false);
   };
 
+  // Handle refresh: prefer live sheet comparison when possible
+  const handleRefreshClick = async () => {
+    if (isLoading) return;
+    try {
+      if (currentSheetId && isConnected) {
+        const result = await checkSheetColumnChanges(currentSheetId);
+        setSyncResult(result);
+        const map: Record<string, ColumnChange["type"]> = {};
+        const rOldToNew: Record<string, string> = {};
+        const rNewToOld: Record<string, string> = {};
+        if (result) {
+          for (const ch of result.changes) {
+            // Always map the target name
+            map[ch.name] = ch.type;
+            // For renamed, also tag the old name so the badge shows on current list (old names) before Apply
+            if (ch.type === 'renamed' && ch.oldName) {
+              map[ch.oldName] = 'renamed';
+              rOldToNew[ch.oldName] = ch.name;
+              rNewToOld[ch.name] = ch.oldName;
+            }
+          }
+          setChangeMap(map);
+          setRenameOldToNew(rOldToNew);
+          setRenameNewToOld(rNewToOld);
+        } else {
+          setChangeMap({});
+          setRenameOldToNew({});
+          setRenameNewToOld({});
+        }
+      } else {
+        // Fallback to simple refetch
+        await refetch();
+        setSyncResult(null);
+        setChangeMap({});
+      }
+    } catch (e) {
+      console.error("Refresh check failed, falling back to refetch:", e);
+      await refetch();
+    }
+  };
+
+  // Apply detected changes to local fields
+  const applyDetectedChanges = () => {
+    if (!syncResult) return;
+    const existingByName = new Map<string, Field>(fields.map(f => [f.name, f]));
+    const existingById = new Map<string, Field>(fields.map(f => [f.id, f]));
+    const renameMapNewToOld = new Map<string, string>();
+    for (const ch of syncResult.changes) {
+      if (ch.type === 'renamed' && ch.oldName) {
+        renameMapNewToOld.set(ch.name, ch.oldName);
+      }
+    }
+
+    // Build new ordered list from mergedColumns excluding removed
+    const activeMerged = syncResult.mergedColumns.filter((c: any) => !c.isRemoved);
+    const newFieldsOrdered: Field[] = activeMerged.map((c: any, idx: number) => {
+      let existing = existingByName.get(c.name);
+      if (!existing && c.id) {
+        existing = existingById.get(String(c.id));
+      }
+      if (!existing) {
+        const oldName = renameMapNewToOld.get(c.name);
+        if (oldName) existing = existingByName.get(oldName);
+      }
+      if (existing) {
+        return {
+          ...existing,
+          // keep existing type/description/options, but ensure defaults
+          type: existing.type || "text",
+          description: existing.description || "",
+          options: existing.options || [],
+          active: true,
+          originalIndex: idx,
+        };
+      }
+      // New column -> default to Text
+      return {
+        id: `custom-${Date.now()}-${idx}`,
+        name: c.name,
+        type: "text",
+        description: "",
+        options: [],
+        active: true,
+        originalIndex: idx,
+        sampleData: c.sampleData || [],
+      } as Field;
+    });
+
+    // Append removed as inactive with preserved id when possible
+    const removedNames = new Set(
+      syncResult.mergedColumns.filter((c: any) => c.isRemoved).map((c: any) => c.name)
+    );
+    const removedFields: Field[] = [];
+    for (const name of removedNames) {
+      const existing = existingByName.get(name);
+      if (existing) {
+        removedFields.push({
+          ...existing,
+          active: false,
+          // mark removed with non-negative index left as-is; UI/server can handle
+          originalIndex: typeof existing.originalIndex === 'number' ? existing.originalIndex : -1,
+        });
+      }
+    }
+
+    const updated = [...newFieldsOrdered, ...removedFields];
+    setFields(updated);
+    setIsDirty(true);
+    setUpdateGlobalMetadata(true); // ensure both local and global can be updated on save
+    if (onFieldChange) onFieldChange(true, updated);
+  };
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex justify-between items-center mb-4">
@@ -383,7 +548,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            onClick={handleRefreshClick}
             disabled={isLoading}
           >
             <RefreshCw
@@ -603,6 +768,28 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         </Alert>
       )}
 
+      {/* Change summary alert */}
+      {syncResult && syncResult.hasChanges && (
+        <Alert className="border-blue-300 bg-blue-50/70 dark:bg-blue-900/20 dark:border-blue-700">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Detected changes in Google Sheet</AlertTitle>
+          <AlertDescription>
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-sm text-muted-foreground">
+                <span className="mr-3">Added: {syncResult.changes.filter(c => c.type === 'added').length}</span>
+                <span className="mr-3">Removed: {syncResult.changes.filter(c => c.type === 'removed').length}</span>
+                <span className="mr-3">Renamed: {syncResult.changes.filter(c => c.type === 'renamed').length}</span>
+                <span>Reordered: {syncResult.changes.filter(c => c.type === 'reordered').length}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setSyncResult(null); setChangeMap({}); setRenameOldToNew({}); setRenameNewToOld({}); }}>Dismiss</Button>
+                <Button size="sm" onClick={applyDetectedChanges}>Apply changes</Button>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center items-center h-40">
           <RefreshCw className="h-5 w-5 animate-spin mr-2" />
@@ -624,7 +811,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                 ref={provided.innerRef}
                 className="space-y-2"
               >
-                {fields.map((field, index) => (
+                {(syncResult && syncResult.hasChanges ? buildDisplayedFields() : fields).map((field, index) => (
                   <Draggable
                     key={field.id}
                     draggableId={field.id}
@@ -661,6 +848,24 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                                     )?.label || field.type
                                   }
                                 </Badge>
+                                {changeMap[field.name] === 'added' && (
+                                  <Badge className="ml-2 text-xs bg-emerald-600 text-white" variant="default">New</Badge>
+                                )}
+                                {changeMap[field.name] === 'removed' && (
+                                  <Badge className="ml-2 text-xs" variant="destructive">Removed</Badge>
+                                )}
+                                {changeMap[field.name] === 'reordered' && (
+                                  <Badge className="ml-2 text-xs" variant="secondary">Reordered</Badge>
+                                )}
+                                {changeMap[field.name] === 'renamed' && (
+                                  <Badge className="ml-2 text-xs bg-amber-500 text-white" variant="default">
+                                    {renameOldToNew[field.name]
+                                      ? `Renamed → ${renameOldToNew[field.name]}`
+                                      : renameNewToOld[field.name]
+                                      ? `Renamed from ${renameNewToOld[field.name]}`
+                                      : 'Renamed'}
+                                  </Badge>
+                                )}
                               </div>
                               {field.description && (
                                 <p className="text-sm text-gray-500 mt-1">
@@ -691,14 +896,14 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                               <Switch
                                 id={`include-${field.id}`}
                                 checked={field.active}
-                                onCheckedChange={() =>
-                                  toggleFieldInclusion(field.id)
-                                }
+                                disabled={field.id.startsWith('temp-')}
+                                onCheckedChange={() => toggleFieldInclusion(field.id)}
                               />
                             </div>
                             <Button
                               variant="outline"
                               size="sm"
+                              disabled={field.id.startsWith('temp-')}
                               onClick={() => handleEditField(field)}
                             >
                               Edit

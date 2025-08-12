@@ -47,10 +47,11 @@ interface SheetColumnsResponse {
 
 // Define interfaces for column change detection
 export interface ColumnChange {
-  type: 'added' | 'removed' | 'reordered' | 'unchanged';
-  name: string;
+  type: 'added' | 'removed' | 'reordered' | 'unchanged' | 'renamed';
+  name: string; // for renamed, this is the new name
   index?: number;
   newIndex?: number;
+  oldName?: string; // present when type === 'renamed'
 }
 
 export interface ColumnSyncResult {
@@ -81,7 +82,7 @@ interface GoogleSheetsContextType {
   loadMoreSheets: () => Promise<GoogleSheet[]>;
   refreshSheets: () => Promise<GoogleSheet[]>;
   createSheet: (name: string) => Promise<GoogleSheet | null>;
-  getSheetColumns: (sheetId: string) => Promise<SheetColumnsResponse>;
+  getSheetColumns: (sheetId: string, sheetTabName?: string) => Promise<SheetColumnsResponse>;
   saveSheetConnection: (connectionName: string, description: string, columnsMetadata: any[], sheetTabName?: string, forceGlobalUpdate?: boolean) => Promise<boolean>;
   writeSheetColumns: (sheetId: string, columns: any[]) => Promise<boolean>;
   getSheetConnection: (sheetId: string) => Promise<any | null>;
@@ -652,168 +653,151 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     }
   };
 
-  // Check for changes between saved columns metadata and actual Google Sheet columns
+  // Check for changes between saved columns metadata and actual Google Sheet columns (simple index-based)
   const checkSheetColumnChanges = async (sheetId: string): Promise<ColumnSyncResult | null> => {
     try {
-      
-      // Get saved connection data if it exists
       const savedConnection = await getSheetConnection(sheetId);
-      
-      // Get current columns from Google Sheet
       const sheetData = await getSheetColumns(sheetId);
-      
-      // If sheet is empty, return null
-      if (sheetData.isEmpty) {
-        console.log('❌ Sheet is empty, no columns to check');
-        return null;
-      }
-      
-      // If we don't have saved metadata, all columns are "new"
-      if (!savedConnection || !savedConnection.columns_metadata || !Array.isArray(savedConnection.columns_metadata)) {
+      if (sheetData.isEmpty) return null;
+
+      if (!savedConnection || !Array.isArray(savedConnection.columns_metadata)) {
         return {
-          hasChanges: false, // No real changes since we're starting fresh
+          hasChanges: false,
           changes: [],
-          mergedColumns: sheetData.columns.map((col: SheetColumn) => ({
-            id: `col-${Math.random().toString(36).substring(2, 11)}`,
-            name: col.name,
-            type: col.type,
-            description: '',
-            options: []
-          })),
+          mergedColumns: sheetData.columns.map((c) => ({ id: `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: c.type, description: '', options: [] })),
           savedColumns: [],
-          currentColumns: sheetData.columns
+          currentColumns: sheetData.columns,
         };
       }
-      
-      const savedColumns = savedConnection.columns_metadata;
-      const currentColumns = sheetData.columns;
-      
-      // Track all changes
+
+      // Use ALL saved columns (global metadata) for comparison as per rule
+      const savedRaw: any[] = savedConnection.columns_metadata;
+      console.log('🧪 checkSheetColumnChanges:start', {
+        sheetId,
+        savedRawCount: savedRaw?.length,
+        savedRawNames: savedRaw?.map((c: any) => ({ name: c?.name, originalIndex: c?.originalIndex, active: c?.active, isRemoved: c?.isRemoved })),
+        currentCount: sheetData.columns.length,
+        currentNames: sheetData.columns.map(c => c.name),
+      });
+      // Order saved by originalIndex (global position), fallback to their relative order in savedRaw
+      const savedOrdered = [...savedRaw].sort((a, b) => {
+        const ai = typeof a.originalIndex === 'number' ? a.originalIndex : savedRaw.indexOf(a);
+        const bi = typeof b.originalIndex === 'number' ? b.originalIndex : savedRaw.indexOf(b);
+        return ai - bi;
+      });
+      const current = sheetData.columns;
+      console.log('📐 afterFilterAndOrder', {
+        savedCount: savedOrdered.length,
+        savedOrderedNames: savedOrdered.map((c: any, i: number) => ({ i, name: c?.name, originalIndex: c?.originalIndex, active: c?.active, isRemoved: c?.isRemoved })),
+        currentNamesWithIndex: current.map((c, i) => ({ i, name: c.name })),
+      });
+
+      const norm = (s: string) => (s || '').trim().toLowerCase();
+
       const changes: ColumnChange[] = [];
-      
-      // Create maps for faster lookups with proper typing
-      type ColumnWithIndex = { name: string; index: number; id?: string; type?: string; description?: string; options?: any[]; [key: string]: any };
-      
-      const savedColumnMap = new Map<string, ColumnWithIndex>(
-        savedColumns.map((col: any, index: number) => [
-          col.name, 
-          { ...col, index }
-        ])
-      );
-      
-      const currentColumnMap = new Map<string, ColumnWithIndex>(
-        currentColumns.map((col: any, index: number) => [
-          col.name, 
-          { ...col, index }
-        ])
-      );
-      
-      // Check for removed columns (in saved but not in current)
-      savedColumns.forEach((col: any, index: number) => {
-        const exists = currentColumnMap.has(col.name);
-        
-        if (!exists) {
-          console.log(`🛈 FOUND REMOVED COLUMN: '${col.name}' at index ${index}`);
-          changes.push({
-            type: 'removed',
-            name: col.name,
-            index: index
-          });
+      const addedAt = new Set<number>();
+      const removedAt = new Set<number>();
+      const renamedAt = new Map<number, { oldName: string; newName: string }>();
+
+      const savedLen = savedOrdered.length;
+      const currentLen = current.length;
+
+      // Pass 1: classify pure structural adds/removes by length and out-of-range indices
+      const minLen = Math.min(savedLen, currentLen);
+      const mismatchIndices: number[] = [];
+      for (let i = 0; i < Math.max(savedLen, currentLen); i++) {
+        if (i >= savedLen) {
+          // beyond saved range → added
+          addedAt.add(i);
+          continue;
         }
-      });
-      
-      // Check for added or reordered columns
-      currentColumns.forEach((col: any, currentIndex: number) => {
-        const savedColumn = savedColumnMap.get(col.name);
-        
-        if (!savedColumn) {
-          // This is a new column
-          changes.push({
-            type: 'added',
-            name: col.name,
-            index: currentIndex
-          });
-        } else if (savedColumn.index !== currentIndex) {
-          // Column exists but position changed
-          changes.push({
-            type: 'reordered',
-            name: col.name,
-            index: savedColumn.index,
-            newIndex: currentIndex
-          });
-        } else {
-          // Column is unchanged
-          changes.push({
-            type: 'unchanged',
-            name: col.name,
-            index: currentIndex
-          });
+        if (i >= currentLen) {
+          // beyond current range → removed
+          removedAt.add(i);
+          continue;
         }
-      });
-      
-      // Create merged columns that preserves custom settings from saved columns
-      // but updates with the current column order and includes new columns
-      const mergedColumns = currentColumns.map((col: any, index: number) => {
-        const savedColumn = savedColumnMap.get(col.name);
-        
-        if (savedColumn) {
-          // Preserve id, type, description, and options from saved column
-          console.log(`🧲 Merging column '${col.name}' with saved settings:`, {
-            savedId: savedColumn.id,
-            savedType: savedColumn.type,
-            newType: col.type
-          });
-          return {
-            id: savedColumn.id || `col-${Math.random().toString(36).substring(2, 11)}`,
-            name: col.name,
-            type: savedColumn.type,
-            description: savedColumn.description || '',
-            options: savedColumn.options || []
-          };
-        } else {
-          // New column, generate new ID and use inferred type from API
-          console.log(`🆕 Creating new column object for '${col.name}' with type: ${col.type}`);
-          return {
-            id: `col-${Math.random().toString(36).substring(2, 11)}`,
-            name: col.name,
-            type: col.type,
-            description: '',
-            options: []
-          };
+        // within both ranges, record mismatches for potential rename
+        if (norm(current[i].name) !== norm(savedOrdered[i].name)) {
+          mismatchIndices.push(i);
         }
-      });
-      
-      // What about removed columns? We need to check if any were found
-      const addedColumns = changes.filter(c => c.type === 'added').length;
-      const removedColumns = changes.filter(c => c.type === 'removed').length;
-      const reorderedColumns = changes.filter(c => c.type === 'reordered').length;
-      
-      // Important: we also need to include removed columns in the merged results
-      // so ReviewFields component can still see them but mark them as removed
-      const removedColumnsData = savedColumns
-        .filter((col: { name: string }) => !currentColumnMap.has(col.name))
-        .map((col: { name: string; id?: string; type?: string; description?: string; options?: any[] }) => ({
-          ...col,
-          isRemoved: true  // Mark as removed so UI can handle it appropriately
-        }));
-      
-      // Add removed columns to the end of mergedColumns with a special flag
-      const finalMergedColumns = [...mergedColumns];
-      
-      if (removedColumnsData.length > 0) {
-        console.log(`🚫 Including ${removedColumnsData.length} removed columns in results with 'isRemoved' flag:`, 
-          removedColumnsData.map((col: any) => col.name));
-        finalMergedColumns.push(...removedColumnsData);
       }
-      
-      const hasChanges = changes.some(change => change.type !== 'unchanged');
-      
-      return {
-        hasChanges: hasChanges,
+      console.log('🔎 pass1', {
+        savedLen,
+        currentLen,
+        mismatchIndices,
+        addedAt: Array.from(addedAt).sort((a,b)=>a-b),
+        removedAt: Array.from(removedAt).sort((a,b)=>a-b),
+      });
+
+      // Pass 2: after accounting for length, remaining mismatches at shared indices are renames
+      for (const i of mismatchIndices) {
+        if (!addedAt.has(i) && !removedAt.has(i)) {
+          renamedAt.set(i, { oldName: savedOrdered[i].name, newName: current[i].name });
+        }
+      }
+      console.log('✏️ pass2', {
+        renamedAt: Array.from(renamedAt.entries()).map(([i, v]) => ({ i, oldName: v.oldName, newName: v.newName })),
+      });
+
+      // Build change list deterministically
+      for (const i of Array.from(addedAt).sort((a,b)=>a-b)) {
+        changes.push({ type: 'added', name: current[i]?.name ?? `index-${i}`, index: i });
+      }
+      for (const i of Array.from(removedAt).sort((a,b)=>a-b)) {
+        changes.push({ type: 'removed', name: savedOrdered[i]?.name ?? `index-${i}`, index: i });
+      }
+      for (const [i, pair] of Array.from(renamedAt.entries()).sort((a,b)=>a[0]-b[0])) {
+        changes.push({ type: 'renamed', name: pair.newName, oldName: pair.oldName, index: i });
+      }
+      // Mark unchanged for completeness (optional)
+      const maxLen = Math.max(savedLen, currentLen);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < savedLen && i < currentLen) {
+          if (!addedAt.has(i) && !removedAt.has(i) && !renamedAt.has(i) && norm(current[i].name) === norm(savedOrdered[i].name)) {
+            changes.push({ type: 'unchanged', name: current[i].name, index: i });
+          }
+        }
+      }
+
+      // Merge columns: active sequence is current order
+      const mergedActive = current.map((c, i) => {
+        if (addedAt.has(i)) {
+          return { id: `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: 'text', description: '', options: [] };
+        }
+        if (renamedAt.has(i)) {
+          // Keep metadata from saved at same index
+          const saved = savedOrdered[i] || {};
+          return { id: saved.id || `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: saved.type || 'text', description: saved.description || '', options: saved.options || [] };
+        }
+        // unchanged (or lengths different but still aligned)
+        const saved = savedOrdered[i] || {};
+        return { id: saved.id || `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: saved.type || 'text', description: saved.description || '', options: saved.options || [] };
+      });
+
+      // Removed entries appended with isRemoved
+      const removedTail = Array.from(removedAt).sort((a,b)=>a-b)
+        .map((i) => {
+          const saved = savedOrdered[i] || {};
+          return { ...saved, isRemoved: true };
+        });
+
+      const finalMerged = [...mergedActive, ...removedTail];
+      console.log('📦 merged', {
+        mergedActiveNames: mergedActive.map((c: any, i: number) => ({ i, name: c.name })),
+        removedTailNames: removedTail.map((c: any) => c?.name),
+      });
+      const hasChanges = changes.some(ch => ch.type !== 'unchanged');
+      console.log('✅ result', {
+        hasChanges,
         changes,
-        mergedColumns: finalMergedColumns,
-        savedColumns,
-        currentColumns
+      });
+
+      return {
+        hasChanges,
+        changes,
+        mergedColumns: finalMerged,
+        savedColumns: savedOrdered,
+        currentColumns: current,
       };
     } catch (error) {
       console.error('Error checking column changes:', error);

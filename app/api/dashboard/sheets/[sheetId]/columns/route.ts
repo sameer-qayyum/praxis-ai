@@ -89,13 +89,28 @@ export async function GET(
     
     // If we have app-specific data_model, return it
     if (appData.data_model && Array.isArray(appData.data_model) && appData.data_model.length > 0) {
+      // Ensure we return the actual Google spreadsheet ID, not the connection ID
+      const { data: connectionForApp, error: connectionForAppError } = await supabase
+        .from("google_sheets_connections")
+        .select("sheet_id, sheet_name")
+        .eq("id", app.google_sheet)
+        .single();
+
+      if (connectionForAppError || !connectionForApp) {
+        return NextResponse.json(
+          { error: "Sheet connection not found", details: connectionForAppError?.message },
+          { status: 404 }
+        );
+      }
+
       return NextResponse.json({
         columns: appData.data_model.map((col: any, index: number) => ({
           ...col,
           id: col.id || `field-${index}`,
           active: typeof col.active === 'boolean' ? col.active : true // Respect saved value, default to true only if undefined
         })),
-        sheetId: app.google_sheet,
+        sheetId: connectionForApp.sheet_id,
+        sheetName: connectionForApp.sheet_name || null,
       });
     }
     
