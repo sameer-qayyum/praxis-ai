@@ -222,8 +222,6 @@ export async function POST(
       // Properly format the sheet name for the Google Sheets API
       const formattedSheetName = `'${sheetData.sheet_name.replace(/'/g, "''")}'`;
       
-      console.log('Using formatted sheet name:', formattedSheetName);
-      
       const appendResponse = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id || sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
         {

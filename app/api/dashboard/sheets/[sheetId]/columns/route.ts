@@ -89,6 +89,7 @@ export async function GET(
     
     // If we have app-specific data_model, return it
     if (appData.data_model && Array.isArray(appData.data_model) && appData.data_model.length > 0) {
+      console.info('[DashboardColumnsAPI][GET] Source: apps.data_model', { appId, count: appData.data_model.length });
       // Ensure we return the actual Google spreadsheet ID, not the connection ID
       const { data: connectionForApp, error: connectionForAppError } = await supabase
         .from("google_sheets_connections")
@@ -111,6 +112,7 @@ export async function GET(
         })),
         sheetId: connectionForApp.sheet_id,
         sheetName: connectionForApp.sheet_name || null,
+        source: 'app.data_model'
       });
     }
     
@@ -130,6 +132,7 @@ export async function GET(
     
     // If we have saved metadata in the connection, use that
     if (connection.columns_metadata?.length > 0) {
+      console.info('[DashboardColumnsAPI][GET] Source: google_sheets_connections.columns_metadata', { connectionId: connection.id, count: connection.columns_metadata.length });
       return NextResponse.json({
         columns: connection.columns_metadata.map((col: any, index: number) => ({
           ...col,
@@ -137,6 +140,7 @@ export async function GET(
           active: typeof col.active === 'boolean' ? col.active : true // Respect saved value, default to true only if undefined
         })),
         sheetId: connection.sheet_id,
+        source: 'connection.columns_metadata'
       });
     }
     
@@ -174,17 +178,19 @@ export async function GET(
     }
     
     const columnData = await response.json();
+    console.info('[DashboardColumnsAPI][GET] Source: live_sheet', { sheetId, count: Array.isArray(columnData.columns) ? columnData.columns.length : 'n/a' });
     
-    // Transform the API response to include the 'id' and 'include' properties
+    // Transform the API response to include the 'id' and 'active' properties (consistent with UI)
     const transformedColumns = columnData.columns.map((col: any, index: number) => ({
       ...col,
       id: `field-${index}`,
-      include: true, // Default to true for newly fetched columns
+      active: true, // Default to true for newly fetched columns
     }));
     
     return NextResponse.json({
       columns: transformedColumns,
       sheetId: connection.sheet_id,
+      source: 'live_sheet'
     });
     
   } catch (error: any) {
@@ -262,6 +268,8 @@ export async function PUT(
     // Parse the request body
     const body = await request.json();
     const { columns, updateGlobal = false } = body;
+
+    console.info('[DashboardColumnsAPI][PUT] Incoming', { appId, columnsCount: Array.isArray(columns) ? columns.length : 'n/a', updateGlobal });
     
     if (!columns || !Array.isArray(columns)) {
       return NextResponse.json(
@@ -295,6 +303,7 @@ export async function PUT(
         })
         .eq("id", appId)
         .select();
+      console.info('[DashboardColumnsAPI][PUT] Updated apps.data_model', { appId, count: columnsWithExplicitBooleans.length });
       
       if (appUpdateError) {
         return NextResponse.json(
@@ -319,6 +328,7 @@ export async function PUT(
           updated_at: new Date().toISOString()
         })
         .eq("id", app.google_sheet);
+      console.info('[DashboardColumnsAPI][PUT] Updated connection.columns_metadata', { connectionId: app.google_sheet, count: Array.isArray(columns) ? columns.length : 'n/a' });
         
       if (globalUpdateError) {
         return NextResponse.json(

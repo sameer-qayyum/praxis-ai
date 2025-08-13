@@ -266,10 +266,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         query: params?.query !== undefined ? params.query : searchQuery
       }
       
-      console.log("Calling list-google-sheets with params:", { 
-        ...requestParams,
-        userId: "[REDACTED]" // Don't log the actual user ID
-      });
       
       // Call our Edge Function to list sheets with the parameters
       const response = await fetch("https://yhfvwlptgkczsvemjlqr.supabase.co/functions/v1/list-google-sheets", {
@@ -553,7 +549,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         // Only update columns_metadata if explicitly requested
         if (forceGlobalUpdate === true) {
           updateData.columns_metadata = columnsMetadata;
-          console.log('📝 Updating global sheet metadata as requested');
         }
         
         const { data, error } = await supabase
@@ -600,11 +595,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
     sheetId: string, 
     columns: any[]
   ): Promise<boolean> => {
-    console.log('🔍 writeSheetColumns called with:', { 
-      sheetId, 
-      columnsCount: columns.length,
-      firstColumnName: columns[0]?.name || 'No columns'
-    });
     
     try {
       // Get current user
@@ -672,13 +662,6 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
 
       // Use ALL saved columns (global metadata) for comparison as per rule
       const savedRaw: any[] = savedConnection.columns_metadata;
-      console.log('🧪 checkSheetColumnChanges:start', {
-        sheetId,
-        savedRawCount: savedRaw?.length,
-        savedRawNames: savedRaw?.map((c: any) => ({ name: c?.name, originalIndex: c?.originalIndex, active: c?.active, isRemoved: c?.isRemoved })),
-        currentCount: sheetData.columns.length,
-        currentNames: sheetData.columns.map(c => c.name),
-      });
       // Order saved by originalIndex (global position), fallback to their relative order in savedRaw
       const savedOrdered = [...savedRaw].sort((a, b) => {
         const ai = typeof a.originalIndex === 'number' ? a.originalIndex : savedRaw.indexOf(a);
@@ -686,111 +669,93 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         return ai - bi;
       });
       const current = sheetData.columns;
-      console.log('📐 afterFilterAndOrder', {
-        savedCount: savedOrdered.length,
-        savedOrderedNames: savedOrdered.map((c: any, i: number) => ({ i, name: c?.name, originalIndex: c?.originalIndex, active: c?.active, isRemoved: c?.isRemoved })),
-        currentNamesWithIndex: current.map((c, i) => ({ i, name: c.name })),
-      });
-
       const norm = (s: string) => (s || '').trim().toLowerCase();
 
+      // Two-pointer diff with lookahead to handle shifts from deletions/additions
       const changes: ColumnChange[] = [];
-      const addedAt = new Set<number>();
-      const removedAt = new Set<number>();
-      const renamedAt = new Map<number, { oldName: string; newName: string }>();
+      const removedIdx: number[] = [];
+      const addedIdx: number[] = [];
+      const renamedPairs: Array<{ index: number; oldName: string; newName: string }> = [];
 
       const savedLen = savedOrdered.length;
       const currentLen = current.length;
+      let iS = 0;
+      let iC = 0;
 
-      // Pass 1: classify pure structural adds/removes by length and out-of-range indices
-      const minLen = Math.min(savedLen, currentLen);
-      const mismatchIndices: number[] = [];
-      for (let i = 0; i < Math.max(savedLen, currentLen); i++) {
-        if (i >= savedLen) {
-          // beyond saved range → added
-          addedAt.add(i);
+      const eq = (a?: string, b?: string) => norm(a || '') === norm(b || '');
+
+      while (iS < savedLen && iC < currentLen) {
+        const s = savedOrdered[iS];
+        const c = current[iC];
+        if (eq(s.name, c.name)) {
+          changes.push({ type: 'unchanged', name: c.name, index: iC });
+          iS += 1; iC += 1;
           continue;
         }
-        if (i >= currentLen) {
-          // beyond current range → removed
-          removedAt.add(i);
+        // Lookahead: deletion in saved (removal) shifts left -> current[iC] matches saved[iS+1]
+        if (iS + 1 < savedLen && eq(savedOrdered[iS + 1].name, c.name)) {
+          removedIdx.push(iS);
+          changes.push({ type: 'removed', name: s.name, index: iS });
+          iS += 1;
           continue;
         }
-        // within both ranges, record mismatches for potential rename
-        if (norm(current[i].name) !== norm(savedOrdered[i].name)) {
-          mismatchIndices.push(i);
+        // Lookahead: addition in current shifts right -> current[iC+1] matches saved[iS]
+        if (iC + 1 < currentLen && eq(s.name, current[iC + 1].name)) {
+          addedIdx.push(iC);
+          changes.push({ type: 'added', name: c.name, index: iC });
+          iC += 1;
+          continue;
         }
-      }
-      console.log('🔎 pass1', {
-        savedLen,
-        currentLen,
-        mismatchIndices,
-        addedAt: Array.from(addedAt).sort((a,b)=>a-b),
-        removedAt: Array.from(removedAt).sort((a,b)=>a-b),
-      });
-
-      // Pass 2: after accounting for length, remaining mismatches at shared indices are renames
-      for (const i of mismatchIndices) {
-        if (!addedAt.has(i) && !removedAt.has(i)) {
-          renamedAt.set(i, { oldName: savedOrdered[i].name, newName: current[i].name });
-        }
-      }
-      console.log('✏️ pass2', {
-        renamedAt: Array.from(renamedAt.entries()).map(([i, v]) => ({ i, oldName: v.oldName, newName: v.newName })),
-      });
-
-      // Build change list deterministically
-      for (const i of Array.from(addedAt).sort((a,b)=>a-b)) {
-        changes.push({ type: 'added', name: current[i]?.name ?? `index-${i}`, index: i });
-      }
-      for (const i of Array.from(removedAt).sort((a,b)=>a-b)) {
-        changes.push({ type: 'removed', name: savedOrdered[i]?.name ?? `index-${i}`, index: i });
-      }
-      for (const [i, pair] of Array.from(renamedAt.entries()).sort((a,b)=>a[0]-b[0])) {
-        changes.push({ type: 'renamed', name: pair.newName, oldName: pair.oldName, index: i });
-      }
-      // Mark unchanged for completeness (optional)
-      const maxLen = Math.max(savedLen, currentLen);
-      for (let i = 0; i < maxLen; i++) {
-        if (i < savedLen && i < currentLen) {
-          if (!addedAt.has(i) && !removedAt.has(i) && !renamedAt.has(i) && norm(current[i].name) === norm(savedOrdered[i].name)) {
-            changes.push({ type: 'unchanged', name: current[i].name, index: i });
-          }
-        }
+        // Otherwise treat as rename at this aligned position
+        renamedPairs.push({ index: iC, oldName: s.name, newName: c.name });
+        changes.push({ type: 'renamed', name: c.name, oldName: s.name, index: iC });
+        iS += 1; iC += 1;
       }
 
-      // Merge columns: active sequence is current order
-      const mergedActive = current.map((c, i) => {
-        if (addedAt.has(i)) {
+      // Any remaining in saved are removed
+      while (iS < savedLen) {
+        removedIdx.push(iS);
+        changes.push({ type: 'removed', name: savedOrdered[iS].name, index: iS });
+        iS += 1;
+      }
+      // Any remaining in current are added
+      while (iC < currentLen) {
+        addedIdx.push(iC);
+        changes.push({ type: 'added', name: current[iC].name, index: iC });
+        iC += 1;
+      }
+
+      // Build merged active sequence aligned to current using saved metadata when matched/renamed
+      const savedIdByName = new Map<string, any>();
+      for (const s of savedOrdered) savedIdByName.set(norm(s.name), s);
+
+      const renamedNewToOld = new Map<string, string>();
+      for (const r of renamedPairs) renamedNewToOld.set(norm(r.newName), r.oldName);
+
+      const mergedActive = current.map((c, idx) => {
+        const normName = norm(c.name);
+        if (addedIdx.includes(idx)) {
           return { id: `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: 'text', description: '', options: [] };
         }
-        if (renamedAt.has(i)) {
-          // Keep metadata from saved at same index
-          const saved = savedOrdered[i] || {};
+        // Prefer renamed mapping at this position
+        const oldName = renamedNewToOld.get(normName);
+        if (typeof oldName === 'string') {
+          const saved = savedIdByName.get(norm(oldName)) || {};
           return { id: saved.id || `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: saved.type || 'text', description: saved.description || '', options: saved.options || [] };
         }
-        // unchanged (or lengths different but still aligned)
-        const saved = savedOrdered[i] || {};
+        // Unchanged or shifted-but-same name: use saved metadata if exists, else defaults
+        const saved = savedIdByName.get(normName) || {};
         return { id: saved.id || `col-${Math.random().toString(36).slice(2,11)}`, name: c.name, type: saved.type || 'text', description: saved.description || '', options: saved.options || [] };
       });
 
       // Removed entries appended with isRemoved
-      const removedTail = Array.from(removedAt).sort((a,b)=>a-b)
-        .map((i) => {
-          const saved = savedOrdered[i] || {};
-          return { ...saved, isRemoved: true };
-        });
+      const removedTail = removedIdx.sort((a,b)=>a-b).map((i) => {
+        const saved = savedOrdered[i] || {};
+        return { ...saved, isRemoved: true };
+      });
 
       const finalMerged = [...mergedActive, ...removedTail];
-      console.log('📦 merged', {
-        mergedActiveNames: mergedActive.map((c: any, i: number) => ({ i, name: c.name })),
-        removedTailNames: removedTail.map((c: any) => c?.name),
-      });
       const hasChanges = changes.some(ch => ch.type !== 'unchanged');
-      console.log('✅ result', {
-        hasChanges,
-        changes,
-      });
 
       return {
         hasChanges,

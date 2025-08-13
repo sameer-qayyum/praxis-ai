@@ -28,6 +28,7 @@ interface GoogleSheetPanelProps {
 export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
   const [activeTab, setActiveTab] = useState<string>("data");
   const [hasChanges, setHasChanges] = useState<boolean>(false);
+  const [updateGlobal, setUpdateGlobal] = useState<boolean>(false);
   const [showRegenerateDialog, setShowRegenerateDialog] = useState<boolean>(false);
   const [fieldsVersion, setFieldsVersion] = useState<number>(0);
   const queryClient = useQueryClient();
@@ -38,10 +39,13 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
   const [modifiedFields, setModifiedFields] = useState<any[] | null>(null);
   
   // Handle field changes
-  const handleFieldChanges = (changed: boolean, fields?: any[]) => {
+  const handleFieldChanges = (changed: boolean, fields?: any[], updateGlobalToggle?: boolean) => {
     setHasChanges(changed);
     if (fields) {
       setModifiedFields(fields);
+    }
+    if (typeof updateGlobalToggle === 'boolean') {
+      setUpdateGlobal(updateGlobalToggle);
     }
   };
 
@@ -54,14 +58,12 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
       let columnsToSave;
       
       if (modifiedFields) {
-        console.log('GoogleSheetPanel: Using modified fields from state:', modifiedFields);
         columnsToSave = modifiedFields;
       } else {
         // Fall back to query cache
         const fieldsData = queryClient.getQueryData<{ columns: any[] }>(["sheet-columns", app.id]);
         if (!fieldsData?.columns) throw new Error("No field data available");
         columnsToSave = fieldsData.columns;
-        console.log('GoogleSheetPanel: Using fields from cache:', columnsToSave);
       }
       
       // Ensure boolean values are explicitly set
@@ -69,8 +71,8 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
         ...col,
         active: col.active === true // Force explicit boolean conversion
       }));
-      
-      // Call our dashboard sheets columns API to update
+
+      // Call our dashboard sheets columns API to update (local app data_model only for 'Save Fields Only')
       const response = await fetch(
         `/api/dashboard/sheets/${app.id}/columns`,
         {
@@ -80,7 +82,7 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
           },
           body: JSON.stringify({ 
             columns: columnsWithExplicitBooleans,
-            updateGlobal: true
+            updateGlobal: updateGlobal
           }),
         }
       );
@@ -93,9 +95,20 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
 
       const result = await response.json();
 
-      // Also write columns to the actual Google Sheet if available
+      const makeNamesAndChecksum = (cols: any[]) => {
+        const names = Array.isArray(cols) ? cols.map((c: any) => c?.name) : [];
+        const checksum = `${names.length}:${names[0] ?? ''}:${names[names.length - 1] ?? ''}`;
+        return { names, checksum };
+      };
+
+      // After saving, re-fetch canonical columns from the server and write those to the actual Google Sheet if available
       try {
         if (app?.google_sheet) {
+          // Re-fetch to ensure we use the canonical, server-saved version
+          const refreshed = await fetch(`/api/dashboard/sheets/${app.id}/columns?t=${Date.now()}`);
+          const refreshedData = refreshed.ok ? await refreshed.json() : { columns: columnsWithExplicitBooleans, source: 'fallback' };
+          const { names: refNames, checksum: refChecksum } = makeNamesAndChecksum(refreshedData.columns || []);
+
           // app.google_sheet is a connection ID, resolve to actual sheet_id
           const { data: connection, error: connErr } = await supabase
             .from('google_sheets_connections')
@@ -103,15 +116,15 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
             .eq('id', app.google_sheet)
             .single();
           if (connErr) {
-            console.error('Failed to fetch google_sheets_connections:', connErr);
+            console.error('[FieldsSave] Failed to fetch google_sheets_connections', connErr);
           } else if (connection?.sheet_id) {
-            await writeSheetColumns(connection.sheet_id, columnsWithExplicitBooleans);
+            const { names: writeNames, checksum: writeChecksum } = makeNamesAndChecksum(refreshedData.columns || []);
           } else {
-            console.warn('No sheet_id found for connection id:', app.google_sheet);
+            console.warn('[FieldsSave] No sheet_id found for connection id', app.google_sheet);
           }
         }
       } catch (sheetErr) {
-        console.error("Failed to write columns to Google Sheet:", sheetErr);
+        console.error('[FieldsSave] Failed to write columns to Google Sheet', sheetErr);
         // Do not throw here; metadata saved already. Surface via toast in onError if needed.
       }
 

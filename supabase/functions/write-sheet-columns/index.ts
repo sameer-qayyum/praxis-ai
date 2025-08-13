@@ -111,42 +111,48 @@ Deno.serve(async (req)=>{
         existingColumnMap.set(header, index);
       }
     });
-    // Prepare the merged data
-    let mergedHeaders = [
-      ...existingHeaders
-    ];
-    // Create a set to track columns we've already processed
-    const processedColumns = new Set();
-    
-    // Process each column from the request in their original order
-    columns.forEach((col) => {
-      const existingIndex = existingColumnMap.get(col.name);
-      if (existingIndex !== undefined) {
-        // Update existing column name
-        mergedHeaders[existingIndex] = col.name;
-        // Mark this column as processed
-        processedColumns.add(col.name);
-      } else {
-        // We'll collect new columns separately to maintain their order
-        // instead of immediately pushing to mergedHeaders
-      }
-    });
+    // Non-destructive mode:
+    // - Preserve existing order
+    // - Rename in place using originalIndex when available (or existing name match)
+    // - Append truly new fields at the end
+    // - Do not clear/delete extras by default
+    const resultHeaders: string[] = existingHeaders.slice();
+    const placedNames = new Set<string>();
+    let updatedInPlace = 0;
 
-    // Create a new array with existing columns first, followed by new columns in their original order
-    const newColumns = columns
-      .filter(col => !processedColumns.has(col.name) && !existingColumnMap.has(col.name))
-      .map(col => col.name);
-    
-    // Add all new columns at once, preserving their order
-    mergedHeaders = [...mergedHeaders, ...newColumns];
-    // Prepare the values to send to Google Sheets API - only headers row
-    const values = [
-      mergedHeaders
-    ];
-    // Calculate the end column letter based on number of columns
-    const columnsCount = mergedHeaders.length;
-    const endColumnLetter = columnToLetter(columnsCount);
-    // Send update to Google Sheets API with dynamic column range - only updating the header row
+    for (const col of columns) {
+      const name = (col?.name ?? '').toString();
+      // Prefer provided originalIndex to keep the sheet's established positions stable
+      const oi = Number.isFinite(col?.originalIndex) ? Number(col.originalIndex) : NaN;
+      if (!isNaN(oi) && oi >= 0 && oi < resultHeaders.length) {
+        resultHeaders[oi] = name;
+        placedNames.add(name);
+        updatedInPlace++;
+        continue;
+      }
+      // Fallback: if a column with this name already exists, rename in place
+      const existingIndex = existingColumnMap.get(name);
+      if (existingIndex !== undefined) {
+        resultHeaders[existingIndex] = name;
+        placedNames.add(name);
+        updatedInPlace++;
+        continue;
+      }
+      // Else: will append later
+    }
+
+    const toAppend = columns
+      .filter((c: any) => {
+        const name = (c?.name ?? '').toString();
+        return !placedNames.has(name) && !existingColumnMap.has(name);
+      })
+      .map((c: any) => (c?.name ?? '').toString());
+
+    const finalHeaders = resultHeaders.concat(toAppend);
+    const endColumnLetter = columnToLetter(finalHeaders.length);
+    const values = [finalHeaders];
+
+    // Write the header row with the computed non-destructive order
     const sheetResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:${endColumnLetter}1?valueInputOption=USER_ENTERED`, {
       method: 'PUT',
       headers: {
@@ -169,6 +175,10 @@ Deno.serve(async (req)=>{
     }
     return new Response(JSON.stringify({
       success: true,
+      mode: 'non_destructive',
+      updatedInPlace,
+      appendedCount: toAppend.length,
+      finalCount: finalHeaders.length,
       updatedRange: sheetData.updatedRange,
       updatedRows: sheetData.updatedRows,
       updatedColumns: sheetData.updatedColumns

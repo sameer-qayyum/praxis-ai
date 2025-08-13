@@ -11,8 +11,6 @@ export async function GET(
     // Get the app ID from params - must await dynamic params in Next.js App Router
     const appId = await params.sheetId; // Note: The param is named sheetId due to Next.js routing constraints
     
-    console.log("API Route received appId:", appId);
-    
     // Parse search parameters
     const { searchParams } = new URL(request.url);
     
@@ -106,8 +104,6 @@ export async function GET(
       baseUrl = `https://${baseUrl}`;
     }
     
-    console.log("Using base URL:", baseUrl);
-    
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
     
     // Build filter query string from searchParams
@@ -120,7 +116,6 @@ export async function GET(
     // Ensure the URL is properly constructed - use localhost for local development
     // When running on localhost, we need to use localhost:3000 to access our own API
     const sheetsDataUrl = `${baseUrl}/api/sheets/${sheetId}/data?${filterParams.toString()}`;
-    console.log("Making request to internal API:", sheetsDataUrl);
     
     try {
       const response = await fetch(sheetsDataUrl, {

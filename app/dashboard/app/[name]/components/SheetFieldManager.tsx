@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useImperativeHandle, forwardRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, DroppableProvided, DraggableProvided } from "@hello-pangea/dnd";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,7 @@ interface SheetFieldManagerProps {
     google_sheet?: string;
   }
   google_sheet?: string
-  onFieldChange?: (changed: boolean, fields?: Field[]) => void
+  onFieldChange?: (changed: boolean, fields?: Field[], updateGlobal?: boolean) => void
 }
 
 // Field type options with icons and descriptions
@@ -145,8 +145,68 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     return idx;
   };
 
+  // Helpers for consolidated actions
+  const clearSyncState = () => {
+    setSyncResult(null);
+    setChangeMap({});
+    setRenameOldToNew({});
+    setRenameNewToOld({});
+  };
+
+  const discardAll = () => {
+    clearSyncState();
+    setFields(originalFields);
+    setIsDirty(false);
+    if (onFieldChange) onFieldChange(false, originalFields, updateGlobalMetadata);
+  };
+
+  // Memoized saveable fields (active merged when sync preview is present)
+  const saveableFields = useMemo<Field[]>(() => {
+    if (syncResult && syncResult.hasChanges) {
+      // Do not filter out inactive fields; we must save all to preserve order mapping
+      return buildDisplayedFields();
+    }
+    return fields;
+  }, [fields, syncResult]);
+
+  const getPendingChangeCount = (): number => {
+    let count = 0;
+    if (syncResult?.changes?.length) count += syncResult.changes.length;
+    // Count edited/added/removed vs original
+    if (fields.length !== originalFields.length) {
+      count += Math.abs(fields.length - originalFields.length);
+    }
+    const len = Math.min(fields.length, originalFields.length);
+    for (let i = 0; i < len; i++) {
+      const a = fields[i];
+      const b = originalFields[i];
+      if (!b || !a) continue;
+      if (
+        a.name !== b.name ||
+        a.type !== b.type ||
+        a.description !== b.description ||
+        a.active !== b.active
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  };
+
+  const saveConsolidated = () => {
+    if (syncResult?.hasChanges) {
+      // Stage detected changes into fields, mark dirty
+      applyDetectedChanges();
+      clearSyncState();
+      return;
+    }
+    // No sync changes, but local edits exist
+    setIsDirty(true);
+    if (onFieldChange) onFieldChange(true, fields, updateGlobalMetadata);
+  };
+
   // Build displayed fields for preview when syncResult exists so users can see added columns
-  const buildDisplayedFields = (): Field[] => {
+  function buildDisplayedFields(): Field[] {
     if (!syncResult || !syncResult.hasChanges) return fields;
     const existingByName = new Map<string, Field>(fields.map(f => [f.name, f]));
     const existingById = new Map<string, Field>(fields.map(f => [f.id, f]));
@@ -154,6 +214,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     for (const ch of syncResult.changes) {
       if (ch.type === 'renamed' && ch.oldName) renameMapNewToOld.set(ch.name, ch.oldName);
     }
+    // Prevent many-to-one reuse of the same existing field
+    const usedExistingIds = new Set<string>();
     const activeMerged = syncResult.mergedColumns.filter((c: any) => !c.isRemoved);
     const preview: Field[] = activeMerged.map((c: any, idx: number) => {
       let existing = existingByName.get(c.name);
@@ -162,9 +224,16 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         const oldName = renameMapNewToOld.get(c.name);
         if (oldName) existing = existingByName.get(oldName);
       }
+      // If this existing has already been matched to another new column, treat as new
+      if (existing && usedExistingIds.has(existing.id)) {
+        existing = undefined;
+      }
       if (existing) {
+        usedExistingIds.add(existing.id);
         return {
           ...existing,
+          // Ensure the displayed name reflects the new sheet header
+          name: c.name,
           originalIndex: idx,
         };
       }
@@ -180,8 +249,48 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         sampleData: c.sampleData || [],
       } as Field;
     });
-    return preview;
-  };
+    // Append removed columns so users can see which previously existing fields are gone
+    const removedMerged = syncResult.mergedColumns.filter((c: any) => c.isRemoved);
+    for (const c of removedMerged) {
+      // Try to find the existing field by name or id
+      let existing = existingByName.get(c.name);
+      if (!existing && c.id) existing = existingById.get(String(c.id));
+
+      if (existing) {
+        preview.push({
+          ...existing,
+          // Use a synthetic ID to avoid duplicate keys/draggableIds when the same
+          // underlying field also appears in the active preview (e.g., rename cases)
+          id: `removed:${existing.id}`,
+          active: false,
+          originalIndex: typeof existing.originalIndex === 'number' ? existing.originalIndex : -1,
+        });
+      } else {
+        // If we cannot find an existing field, still show a stub to indicate removal
+        preview.push({
+          id: `removed:${c.name}`,
+          name: c.name,
+          type: "text",
+          description: "",
+          options: [],
+          active: false,
+          originalIndex: -1,
+          sampleData: [],
+        } as Field);
+      }
+    }
+    // Ensure unique IDs in preview to avoid duplicate React keys/draggableIds
+    const seen = new Set<string>();
+    const uniquePreview = preview.map((f, i) => {
+      let id = f.id;
+      if (seen.has(id)) {
+        id = `dup:${id}:${i}`;
+      }
+      seen.add(id);
+      return { ...f, id } as Field;
+    });
+    return uniquePreview;
+  }
 
   // Function to check if fields have changed from original
   const hasFieldsChanged = () => {
@@ -230,6 +339,15 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const updateMetadata = useMutation({
     mutationFn: async (updatedColumns: Field[]) => {
       if (!app?.id || !app?.google_sheet) throw new Error("No sheet connection");
+      // Persist only active, non-preview fields. Removed items (preview rows) should not be saved.
+      const columnsForSave = (updatedColumns || [])
+        .filter((c) => !String(c.id || '').startsWith('removed:'))
+        .filter((c) => c.active !== false)
+        .map((c) => ({
+          ...c,
+          // Ensure clean IDs for temp rows created in preview
+          id: String(c.id || '').startsWith('temp-') ? undefined : c.id,
+        }));
       
       // Call our dashboard sheets columns API to update
       const response = await fetch(
@@ -240,7 +358,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ 
-            columns: updatedColumns,
+            columns: columnsForSave,
             updateGlobal: updateGlobalMetadata // Include flag to update global metadata if needed
           }),
         }
@@ -295,13 +413,10 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   useEffect(() => {
     if (onFieldChange && fields.length > 0) {
       const changed = hasFieldsChanged();
-      
-      // Pass both the changed status AND the current fields state
-      // This allows the parent to know what fields to save
-      onFieldChange(changed, fields);
+      onFieldChange(changed, saveableFields, updateGlobalMetadata);
       setIsDirty(changed);
     }
-  }, [fields, originalFields, onFieldChange]);
+  }, [saveableFields, originalFields, onFieldChange]);
 
   // Toggle field inclusion
   const toggleFieldInclusion = (id: string) => {
@@ -440,11 +555,10 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         const rNewToOld: Record<string, string> = {};
         if (result) {
           for (const ch of result.changes) {
-            // Always map the target name
+            // Map only the target name to avoid collisions between removed and renamed sharing the same label
             map[ch.name] = ch.type;
-            // For renamed, also tag the old name so the badge shows on current list (old names) before Apply
             if (ch.type === 'renamed' && ch.oldName) {
-              map[ch.oldName] = 'renamed';
+              // Keep rename maps for contextual badges without polluting changeMap for the old name
               rOldToNew[ch.oldName] = ch.name;
               rNewToOld[ch.name] = ch.oldName;
             }
@@ -452,6 +566,12 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
           setChangeMap(map);
           setRenameOldToNew(rOldToNew);
           setRenameNewToOld(rNewToOld);
+          // Auto-apply detected changes so footer in GoogleSheetPanel can save directly
+          // Keep sync state so badges remain visible until save
+          if (result.hasChanges) {
+            applyDetectedChangesFrom(result);
+            // Don't clear sync state to preserve badges until save
+          }
         } else {
           setChangeMap({});
           setRenameOldToNew({});
@@ -469,20 +589,21 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     }
   };
 
-  // Apply detected changes to local fields
-  const applyDetectedChanges = () => {
-    if (!syncResult) return;
+  // Core apply logic with an explicit result to avoid state timing issues
+  const applyDetectedChangesFrom = (result: ColumnSyncResult) => {
     const existingByName = new Map<string, Field>(fields.map(f => [f.name, f]));
     const existingById = new Map<string, Field>(fields.map(f => [f.id, f]));
     const renameMapNewToOld = new Map<string, string>();
-    for (const ch of syncResult.changes) {
+    for (const ch of result.changes) {
       if (ch.type === 'renamed' && ch.oldName) {
         renameMapNewToOld.set(ch.name, ch.oldName);
       }
     }
 
     // Build new ordered list from mergedColumns excluding removed
-    const activeMerged = syncResult.mergedColumns.filter((c: any) => !c.isRemoved);
+    const activeMerged = result.mergedColumns.filter((c: any) => !c.isRemoved);
+    // Prevent many-to-one reuse of the same existing field
+    const usedExistingIds = new Set<string>();
     const newFieldsOrdered: Field[] = activeMerged.map((c: any, idx: number) => {
       let existing = existingByName.get(c.name);
       if (!existing && c.id) {
@@ -492,14 +613,22 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         const oldName = renameMapNewToOld.get(c.name);
         if (oldName) existing = existingByName.get(oldName);
       }
+      // If this existing has already been matched to another new column, treat as new
+      if (existing && usedExistingIds.has(existing.id)) {
+        existing = undefined;
+      }
       if (existing) {
+        usedExistingIds.add(existing.id);
         return {
           ...existing,
           // keep existing type/description/options, but ensure defaults
           type: existing.type || "text",
           description: existing.description || "",
           options: existing.options || [],
-          active: true,
+          // Preserve the existing active flag instead of forcing true
+          active: existing.active === true,
+          // Ensure the stored name is updated to the new header
+          name: c.name,
           originalIndex: idx,
         };
       }
@@ -518,7 +647,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
 
     // Append removed as inactive with preserved id when possible
     const removedNames = new Set(
-      syncResult.mergedColumns.filter((c: any) => c.isRemoved).map((c: any) => c.name)
+      result.mergedColumns.filter((c: any) => c.isRemoved).map((c: any) => c.name)
     );
     const removedFields: Field[] = [];
     for (const name of removedNames) {
@@ -537,7 +666,13 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     setFields(updated);
     setIsDirty(true);
     setUpdateGlobalMetadata(true); // ensure both local and global can be updated on save
-    if (onFieldChange) onFieldChange(true, updated);
+    if (onFieldChange) onFieldChange(true, updated, updateGlobalMetadata);
+  };
+
+  // Backwards-compatible wrapper using current syncResult
+  const applyDetectedChanges = () => {
+    if (!syncResult) return;
+    applyDetectedChangesFrom(syncResult);
   };
 
   return (
@@ -769,26 +904,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       )}
 
       {/* Change summary alert */}
-      {syncResult && syncResult.hasChanges && (
-        <Alert className="border-blue-300 bg-blue-50/70 dark:bg-blue-900/20 dark:border-blue-700">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Detected changes in Google Sheet</AlertTitle>
-          <AlertDescription>
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-sm text-muted-foreground">
-                <span className="mr-3">Added: {syncResult.changes.filter(c => c.type === 'added').length}</span>
-                <span className="mr-3">Removed: {syncResult.changes.filter(c => c.type === 'removed').length}</span>
-                <span className="mr-3">Renamed: {syncResult.changes.filter(c => c.type === 'renamed').length}</span>
-                <span>Reordered: {syncResult.changes.filter(c => c.type === 'reordered').length}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setSyncResult(null); setChangeMap({}); setRenameOldToNew({}); setRenameNewToOld({}); }}>Dismiss</Button>
-                <Button size="sm" onClick={applyDetectedChanges}>Apply changes</Button>
-              </div>
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* No alert needed: detected changes are auto-applied for a single save surface in GoogleSheetPanel */}
 
       {isLoading ? (
         <div className="flex justify-center items-center h-40">
@@ -848,23 +964,30 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                                     )?.label || field.type
                                   }
                                 </Badge>
+                                {/* Badge priority: Removed > Renamed > Added > Reordered */}
+                                {(
+                                  // Removed preview items are appended with id starting with 'removed:'
+                                  field.id.startsWith('removed:') || (!field.active && !!syncResult?.hasChanges)
+                                ) && (
+                                  <Badge className="ml-2 text-xs" variant="destructive">Removed</Badge>
+                                )}
+                                {/* Renamed derived from rename maps to avoid name collisions */}
+                                {!field.id.startsWith('removed:') && renameOldToNew[field.name] && (
+                                  <Badge className="ml-2 text-xs bg-amber-500 text-white" variant="default">
+                                    {`Renamed → ${renameOldToNew[field.name]}`}
+                                  </Badge>
+                                )}
+                                {!field.id.startsWith('removed:') && !renameOldToNew[field.name] && renameNewToOld[field.name] && (
+                                  <Badge className="ml-2 text-xs bg-amber-500 text-white" variant="default">
+                                    {`Renamed from ${renameNewToOld[field.name]}`}
+                                  </Badge>
+                                )}
+                                {/* Added/Reordered from changeMap for the current name */}
                                 {changeMap[field.name] === 'added' && (
                                   <Badge className="ml-2 text-xs bg-emerald-600 text-white" variant="default">New</Badge>
                                 )}
-                                {changeMap[field.name] === 'removed' && (
-                                  <Badge className="ml-2 text-xs" variant="destructive">Removed</Badge>
-                                )}
                                 {changeMap[field.name] === 'reordered' && (
                                   <Badge className="ml-2 text-xs" variant="secondary">Reordered</Badge>
-                                )}
-                                {changeMap[field.name] === 'renamed' && (
-                                  <Badge className="ml-2 text-xs bg-amber-500 text-white" variant="default">
-                                    {renameOldToNew[field.name]
-                                      ? `Renamed → ${renameOldToNew[field.name]}`
-                                      : renameNewToOld[field.name]
-                                      ? `Renamed from ${renameNewToOld[field.name]}`
-                                      : 'Renamed'}
-                                  </Badge>
                                 )}
                               </div>
                               {field.description && (
@@ -920,6 +1043,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
           </Droppable>
         </DragDropContext>
       )}
+
+      {/* Sticky footer removed: rely on GoogleSheetPanel's footer as the single save surface */}
 
       {/* Edit Field Dialog */}
       <Dialog open={isEditing !== null} onOpenChange={(open) => {

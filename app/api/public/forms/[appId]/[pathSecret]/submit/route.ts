@@ -89,7 +89,6 @@ export async function POST(
       .single();
     
     if (appError || !appData) {
-      console.log('Invalid app or secret:', { appId, error: appError });
       return NextResponse.json(
         { error: "Form not found or unauthorized" },
         { status: 403, headers: corsHeaders }
