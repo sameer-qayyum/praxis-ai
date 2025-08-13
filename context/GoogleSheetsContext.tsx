@@ -671,6 +671,17 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       const current = sheetData.columns;
       const norm = (s: string) => (s || '').trim().toLowerCase();
 
+      // Debug: log inputs before diffing
+      try {
+        console.group('[SheetsSync][checkSheetColumnChanges] Inputs');
+        console.log('sheetId:', sheetId);
+        console.log('Saved (ordered) count:', savedOrdered.length,
+          savedOrdered.map((c: any, i: number) => ({ i, name: c?.name, originalIndex: c?.originalIndex })));
+        console.log('Current (sheet) count:', current.length,
+          current.map((c: any, i: number) => ({ i, name: c?.name })));
+        console.groupEnd();
+      } catch {}
+
       // Two-pointer diff with lookahead to handle shifts from deletions/additions
       const changes: ColumnChange[] = [];
       const removedIdx: number[] = [];
@@ -688,6 +699,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         const s = savedOrdered[iS];
         const c = current[iC];
         if (eq(s.name, c.name)) {
+          try { console.debug('[SheetsSync][diff] unchanged', { iS, iC, name: c.name }); } catch {}
           changes.push({ type: 'unchanged', name: c.name, index: iC });
           iS += 1; iC += 1;
           continue;
@@ -695,6 +707,7 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         // Lookahead: deletion in saved (removal) shifts left -> current[iC] matches saved[iS+1]
         if (iS + 1 < savedLen && eq(savedOrdered[iS + 1].name, c.name)) {
           removedIdx.push(iS);
+          try { console.debug('[SheetsSync][diff] removed (lookahead match next saved)', { removedName: s.name, iS, iC, matchesNextSaved: savedOrdered[iS + 1].name }); } catch {}
           changes.push({ type: 'removed', name: s.name, index: iS });
           iS += 1;
           continue;
@@ -702,12 +715,14 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
         // Lookahead: addition in current shifts right -> current[iC+1] matches saved[iS]
         if (iC + 1 < currentLen && eq(s.name, current[iC + 1].name)) {
           addedIdx.push(iC);
+          try { console.debug('[SheetsSync][diff] added (lookahead match next current)', { addedName: c.name, iS, iC, matchesNextCurrent: current[iC + 1].name }); } catch {}
           changes.push({ type: 'added', name: c.name, index: iC });
           iC += 1;
           continue;
         }
         // Otherwise treat as rename at this aligned position
         renamedPairs.push({ index: iC, oldName: s.name, newName: c.name });
+        try { console.debug('[SheetsSync][diff] renamed', { index: iC, oldName: s.name, newName: c.name }); } catch {}
         changes.push({ type: 'renamed', name: c.name, oldName: s.name, index: iC });
         iS += 1; iC += 1;
       }
@@ -715,12 +730,14 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
       // Any remaining in saved are removed
       while (iS < savedLen) {
         removedIdx.push(iS);
+        try { console.debug('[SheetsSync][diff] removed (tail of saved)', { iS, name: savedOrdered[iS]?.name }); } catch {}
         changes.push({ type: 'removed', name: savedOrdered[iS].name, index: iS });
         iS += 1;
       }
       // Any remaining in current are added
       while (iC < currentLen) {
         addedIdx.push(iC);
+        try { console.debug('[SheetsSync][diff] added (tail of current)', { iC, name: current[iC]?.name }); } catch {}
         changes.push({ type: 'added', name: current[iC].name, index: iC });
         iC += 1;
       }
@@ -756,6 +773,19 @@ export const GoogleSheetsProvider = ({ children }: GoogleSheetsProviderProps) =>
 
       const finalMerged = [...mergedActive, ...removedTail];
       const hasChanges = changes.some(ch => ch.type !== 'unchanged');
+
+      // Debug: log outputs after diffing
+      try {
+        console.group('[SheetsSync][checkSheetColumnChanges] Outputs');
+        console.log('removedIdx:', removedIdx, 'addedIdx:', addedIdx);
+        console.log('renamedPairs:', renamedPairs);
+        console.log('changes:', changes);
+        console.log('mergedActive:', mergedActive.map((c: any, i: number) => ({ i, name: c?.name, id: c?.id })));
+        console.log('removedTail:', removedTail.map((c: any) => ({ name: c?.name, isRemoved: c?.isRemoved })));
+        console.log('finalMerged:', finalMerged.map((c: any, i: number) => ({ i, name: c?.name, isRemoved: (c as any)?.isRemoved })));
+        console.log('hasChanges:', hasChanges);
+        console.groupEnd();
+      } catch {}
 
       return {
         hasChanges,

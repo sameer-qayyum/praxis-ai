@@ -279,7 +279,7 @@ export async function PUT(
     }
     
     // Check if the active flag is correctly set on all fields
-    const hasAnyFieldsInactive = columns.some(col => col.active === false);
+    const hasAnyFieldsInactive = columns.some((col: any) => col?.active === false);
     
     try {
       // Get the current data_model to compare
@@ -289,21 +289,26 @@ export async function PUT(
         .eq("id", appId)
         .single();
       
-      // Save the new data model with explicit boolean conversions
-      const columnsWithExplicitBooleans = columns.map(col => ({
-        ...col,
-        active: col.active === true // Force explicit boolean conversion
-      }));
+      // Sanitize incoming columns: drop preview-removed rows and normalize IDs/booleans
+      const columnsForSave = (Array.isArray(columns) ? columns : [])
+        .filter((col: any) => !String(col?.id || '').startsWith('removed:'))
+        .map((col: any) => ({
+          ...col,
+          // Strip preview-only ID prefixes if somehow present
+          id: String(col?.id || '').startsWith('temp-') || String(col?.id || '').startsWith('dup:') ? undefined : col?.id,
+          // Force explicit boolean conversion
+          active: col?.active === true
+        }));
       
       const { error: appUpdateError, data: updateResult } = await supabase
         .from("apps")
         .update({
-          data_model: columnsWithExplicitBooleans,
+          data_model: columnsForSave,
           updated_at: new Date().toISOString()
         })
         .eq("id", appId)
         .select();
-      console.info('[DashboardColumnsAPI][PUT] Updated apps.data_model', { appId, count: columnsWithExplicitBooleans.length });
+      console.info('[DashboardColumnsAPI][PUT] Updated apps.data_model', { appId, count: columnsForSave.length });
       
       if (appUpdateError) {
         return NextResponse.json(
@@ -324,11 +329,17 @@ export async function PUT(
       const { error: globalUpdateError } = await supabase
         .from("google_sheets_connections")
         .update({
-          columns_metadata: columns,
+          columns_metadata: (Array.isArray(columns) ? columns : [])
+            .filter((col: any) => !String(col?.id || '').startsWith('removed:'))
+            .map((col: any) => ({
+              ...col,
+              id: String(col?.id || '').startsWith('temp-') || String(col?.id || '').startsWith('dup:') ? undefined : col?.id,
+              active: col?.active === true
+            })),
           updated_at: new Date().toISOString()
         })
         .eq("id", app.google_sheet);
-      console.info('[DashboardColumnsAPI][PUT] Updated connection.columns_metadata', { connectionId: app.google_sheet, count: Array.isArray(columns) ? columns.length : 'n/a' });
+      console.info('[DashboardColumnsAPI][PUT] Updated connection.columns_metadata', { connectionId: app.google_sheet });
         
       if (globalUpdateError) {
         return NextResponse.json(

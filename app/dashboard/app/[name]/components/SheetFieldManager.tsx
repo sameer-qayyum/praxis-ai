@@ -160,11 +160,11 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     if (onFieldChange) onFieldChange(false, originalFields, updateGlobalMetadata);
   };
 
-  // Memoized saveable fields (active merged when sync preview is present)
+  // Memoized saveable fields: during preview, exclude synthetic removed rows from what gets saved upstream
   const saveableFields = useMemo<Field[]>(() => {
     if (syncResult && syncResult.hasChanges) {
-      // Do not filter out inactive fields; we must save all to preserve order mapping
-      return buildDisplayedFields();
+      const preview = buildDisplayedFields();
+      return preview.filter((f) => !String(f.id || '').startsWith('removed:'));
     }
     return fields;
   }, [fields, syncResult]);
@@ -214,10 +214,18 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     for (const ch of syncResult.changes) {
       if (ch.type === 'renamed' && ch.oldName) renameMapNewToOld.set(ch.name, ch.oldName);
     }
+    // Debug: snapshot of current fields state for matching
+    try {
+      console.group('[FieldsUI][buildDisplayedFields] Matching Context');
+      console.log('fields(state):', fields.map((f) => ({ id: f.id, name: f.name, active: f.active, originalIndex: f.originalIndex })));
+      console.log('renameMapNewToOld:', Object.fromEntries(renameMapNewToOld));
+      console.groupEnd();
+    } catch {}
     // Prevent many-to-one reuse of the same existing field
     const usedExistingIds = new Set<string>();
     const activeMerged = syncResult.mergedColumns.filter((c: any) => !c.isRemoved);
     const preview: Field[] = activeMerged.map((c: any, idx: number) => {
+      let debugInfo: any = { idx, incoming: { name: c.name, id: c.id } };
       let existing = existingByName.get(c.name);
       if (!existing && c.id) existing = existingById.get(String(c.id));
       if (!existing) {
@@ -230,15 +238,17 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       }
       if (existing) {
         usedExistingIds.add(existing.id);
-        return {
+        const out = {
           ...existing,
           // Ensure the displayed name reflects the new sheet header
           name: c.name,
           originalIndex: idx,
-        };
+        } as Field;
+        try { console.debug('[FieldsUI][buildDisplayedFields] match-existing', { ...debugInfo, matchedExisting: { id: existing.id, name: existing.name, active: existing.active }, outActive: out.active }); } catch {}
+        return out;
       }
       // New column preview (type defaults to text)
-      return {
+      const outNew = {
         id: `temp-${idx}`,
         name: c.name,
         type: "text",
@@ -248,6 +258,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         originalIndex: idx,
         sampleData: c.sampleData || [],
       } as Field;
+      try { console.debug('[FieldsUI][buildDisplayedFields] new-column', { ...debugInfo, outActive: outNew.active }); } catch {}
+      return outNew;
     });
     // Append removed columns so users can see which previously existing fields are gone
     const removedMerged = syncResult.mergedColumns.filter((c: any) => c.isRemoved);
@@ -289,6 +301,27 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
       seen.add(id);
       return { ...f, id } as Field;
     });
+    // Debug: log preview rows and computed badge classification per row
+    try {
+      console.group('[FieldsUI][buildDisplayedFields] Preview + Badges');
+      const rows = uniquePreview.map((f) => {
+        let badge: string | null = null;
+        if (f.id.startsWith('removed:') || (!f.active && !!syncResult?.hasChanges)) {
+          badge = 'Removed';
+        } else if (renameOldToNew[f.name]) {
+          badge = `Renamed → ${renameOldToNew[f.name]}`;
+        } else if (!renameOldToNew[f.name] && renameNewToOld[f.name]) {
+          badge = `Renamed from ${renameNewToOld[f.name]}`;
+        } else if (changeMap[f.name] === 'added') {
+          badge = 'New';
+        } else if (changeMap[f.name] === 'reordered') {
+          badge = 'Reordered';
+        }
+        return { name: f.name, id: f.id, active: f.active, originalIndex: f.originalIndex, badge };
+      });
+      console.table(rows);
+      console.groupEnd();
+    } catch {}
     return uniquePreview;
   }
 
@@ -339,10 +372,9 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const updateMetadata = useMutation({
     mutationFn: async (updatedColumns: Field[]) => {
       if (!app?.id || !app?.google_sheet) throw new Error("No sheet connection");
-      // Persist only active, non-preview fields. Removed items (preview rows) should not be saved.
+      // Persist all fields except preview-removed items. Keep inactive fields if the user disabled them intentionally.
       const columnsForSave = (updatedColumns || [])
         .filter((c) => !String(c.id || '').startsWith('removed:'))
-        .filter((c) => c.active !== false)
         .map((c) => ({
           ...c,
           // Ensure clean IDs for temp rows created in preview
@@ -412,11 +444,12 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   // Notify parent component of changes
   useEffect(() => {
     if (onFieldChange && fields.length > 0) {
-      const changed = hasFieldsChanged();
+      // Consider sync preview changes as pending even if underlying fields array hasn't changed (e.g., only removals shown as preview rows)
+      const changed = Boolean(syncResult?.hasChanges) || hasFieldsChanged();
       onFieldChange(changed, saveableFields, updateGlobalMetadata);
       setIsDirty(changed);
     }
-  }, [saveableFields, originalFields, onFieldChange]);
+  }, [saveableFields, originalFields, onFieldChange, syncResult?.hasChanges, updateGlobalMetadata]);
 
   // Toggle field inclusion
   const toggleFieldInclusion = (id: string) => {
@@ -549,6 +582,16 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     try {
       if (currentSheetId && isConnected) {
         const result = await checkSheetColumnChanges(currentSheetId);
+        try {
+          console.group('[FieldsUI][handleRefreshClick] Sync Result');
+          console.log('sheetId:', currentSheetId);
+          console.log('hasChanges:', result?.hasChanges);
+          console.log('savedColumns:', result?.savedColumns?.map((c: any, i: number) => ({ i, name: c?.name, originalIndex: c?.originalIndex })));
+          console.log('currentColumns:', result?.currentColumns?.map((c: any, i: number) => ({ i, name: c?.name })));
+          console.log('changes:', result?.changes);
+          console.log('mergedColumns:', result?.mergedColumns?.map((c: any, i: number) => ({ i, name: c?.name, isRemoved: (c as any)?.isRemoved })));
+          console.groupEnd();
+        } catch {}
         setSyncResult(result);
         const map: Record<string, ColumnChange["type"]> = {};
         const rOldToNew: Record<string, string> = {};
@@ -563,6 +606,13 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
               rNewToOld[ch.name] = ch.oldName;
             }
           }
+          try {
+            console.group('[FieldsUI][handleRefreshClick] Badge Inputs');
+            console.log('changeMap:', map);
+            console.log('renameOldToNew:', rOldToNew);
+            console.log('renameNewToOld:', rNewToOld);
+            console.groupEnd();
+          } catch {}
           setChangeMap(map);
           setRenameOldToNew(rOldToNew);
           setRenameNewToOld(rNewToOld);
@@ -967,7 +1017,7 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
                                 {/* Badge priority: Removed > Renamed > Added > Reordered */}
                                 {(
                                   // Removed preview items are appended with id starting with 'removed:'
-                                  field.id.startsWith('removed:') || (!field.active && !!syncResult?.hasChanges)
+                                  field.id.startsWith('removed:')
                                 ) && (
                                   <Badge className="ml-2 text-xs" variant="destructive">Removed</Badge>
                                 )}

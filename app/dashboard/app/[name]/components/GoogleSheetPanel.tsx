@@ -66,8 +66,11 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
         columnsToSave = fieldsData.columns;
       }
       
+      // Final defensive filter: never persist preview-removed rows
+      const columnsSansRemoved = (columnsToSave || []).filter((col: any) => !String(col?.id || '').startsWith('removed:'));
+
       // Ensure boolean values are explicitly set
-      const columnsWithExplicitBooleans = columnsToSave.map(col => ({
+      const columnsWithExplicitBooleans = columnsSansRemoved.map(col => ({
         ...col,
         active: col.active === true // Force explicit boolean conversion
       }));

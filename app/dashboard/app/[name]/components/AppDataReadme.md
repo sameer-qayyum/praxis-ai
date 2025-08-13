@@ -113,6 +113,19 @@ GoogleSheetPanel
 - `SheetFieldManager` sets an internal `updateGlobalMetadata` flag to `true` when you confirm the Add Field dialog. This ensures intent to persist globally.
 - However, the actual save is centralized in `GoogleSheetPanel`, which currently always sends `updateGlobal: true` in the request body. So, regardless of the internal flag, saves are treated as global.
 
+#### Badge Logic (SheetFieldManager)
+
+- **Priority order**: Removed > Renamed > New > Reordered.
+- **Removed**: Shown only for preview rows representing columns that truly disappeared from the sheet.
+  - Implementation detail: these rows are appended by the preview builder with IDs starting with `removed:` (from `syncResult.mergedColumns` items marked `isRemoved`).
+  - Important: An inactive field (`active: false`) is NOT shown as Removed unless it is a true removal (i.e., has `id` starting with `removed:`).
+- **Renamed**: Shown when rename maps identify a change of name without removal.
+  - Derived from `renameOldToNew` and `renameNewToOld` built from `syncResult.changes` entries of type `renamed`.
+  - Display forms: `Renamed → <new>` and `Renamed from <old>`.
+- **New**: Shown when `changeMap[field.name] === 'added'` (present in sheet but not in saved metadata).
+- **Reordered**: Shown when `changeMap[field.name] === 'reordered'`.
+- **Source of truth for preview**: The UI builds its list primarily from `syncResult.mergedColumns`, where items flagged `isRemoved` are appended as removed-preview rows; non-removed items are rendered as normal rows.
+
 ### Data Persistence Flow
 
 1. **Toggle Field**

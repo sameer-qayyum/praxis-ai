@@ -25,6 +25,31 @@ The Supabase Edge Function at `supabase/functions/write-sheet-columns/index.ts` 
 ### Data Flow
 
 ```
+
+Additionally:
+
+- __SheetFieldManager.tsx__: during sync preview, `buildDisplayedFields()` appends removed preview rows with `id` prefixed by `removed:` so users can see deletions. However, the memo `saveableFields` filters those out before notifying the parent via `onFieldChange`, ensuring preview-only rows are not part of the save payload.
+
+- __API server filter__: `app/api/dashboard/sheets/[sheetId]/columns/route.ts` sanitizes incoming payloads by:
+  - Dropping any rows whose `id` starts with `removed:`
+  - Normalizing preview IDs (`temp-`, `dup:`) to `undefined`
+  - Forcing explicit booleans for `active`
+  This applies to both `apps.data_model` and optional `google_sheets_connections.columns_metadata` when `updateGlobal` is true.
+
+### Footer visibility during preview-only removals
+
+When only deletions are detected, the underlying `fields` array may not change. To ensure the footer (Save/Regenerate) still appears, `SheetFieldManager.tsx` reports changes if `syncResult.hasChanges` is true:
+
+```typescript
+// In SheetFieldManager.tsx
+useEffect(() => {
+  if (onFieldChange && fields.length > 0) {
+    const changed = Boolean(syncResult?.hasChanges) || hasFieldsChanged();
+    onFieldChange(changed, saveableFields, updateGlobalMetadata);
+    setIsDirty(changed);
+  }
+}, [saveableFields, originalFields, onFieldChange, syncResult?.hasChanges, updateGlobalMetadata]);
+```
 ┌───────────────────┐      ┌───────────────────┐      ┌───────────────────┐
 │  Google Sheets    │      │  Praxis Database  │      │   SheetFieldManager│
 │  (External)       │◄────►│  (Columns API)    │◄────►│   (Local State)    │
@@ -218,7 +243,7 @@ const applyDetectedChangesFrom = (result: ColumnSyncResult) => {
 
 The system uses badges to visually indicate different types of changes. Badge derivation avoids name collisions and follows a clear priority:
 
-- **Red Badge ("Removed")** – Shown first for preview rows appended with `id` starting with `removed:` or inactive rows during a sync preview
+- **Red Badge ("Removed")** – Shown first for preview rows appended with `id` starting with `removed:` (true removals only; inactive fields are not marked Removed)
 - **Amber Badge ("Renamed")** – Derived from `renameOldToNew` / `renameNewToOld` maps, never from `changeMap` on old names
 - **Green Badge ("New")** – From `changeMap[currentName] === 'added'`
 - **Gray Badge ("Reordered")** – Optional; if emitted, from `changeMap[currentName] === 'reordered'`
@@ -227,7 +252,7 @@ The system uses badges to visually indicate different types of changes. Badge de
 // In SheetFieldManager.tsx field rendering
 {/* Badge priority: Removed > Renamed > Added > Reordered */}
 {(
-  field.id.startsWith('removed:') || (!field.active && !!syncResult?.hasChanges)
+  field.id.startsWith('removed:')
 ) && (
   <Badge className="ml-2 text-xs" variant="destructive">Removed</Badge>
 )}
@@ -284,26 +309,24 @@ if (result.hasChanges) {
 
 ### 1. Save Field Changes
 
-When the user clicks "Save Fields Only" in the `GoogleSheetPanel`, the following occurs:
+When the user clicks "Save Fields Only" in the `GoogleSheetPanel`, we persist only real columns. Preview-only removed rows (with IDs starting `removed:`) are filtered out at three layers.
 
 ```typescript
 // In GoogleSheetPanel.tsx
 const handleSaveFieldsOnly = async () => {
   try {
-    await saveFieldsMutation.mutateAsync();
-  } catch (error) {
-    console.error("Failed to save field changes:", error);
-  }
-};
-
+{{ ... }}
 // The mutation function
 const saveFieldsMutation = useMutation({
   mutationFn: async () => {
     // Use modified fields from SheetFieldManager
     let columnsToSave = modifiedFields;
-    
+
+    // Final defensive filter: never persist preview-removed rows
+    const columnsSansRemoved = (columnsToSave || []).filter((col: any) => !String(col?.id || '').startsWith('removed:'));
+
     // Ensure boolean values are explicitly set
-    const columnsWithExplicitBooleans = columnsToSave.map(col => ({
+    const columnsWithExplicitBooleans = columnsSansRemoved.map(col => ({
       ...col,
       active: col.active === true // Force explicit boolean conversion
     }));
