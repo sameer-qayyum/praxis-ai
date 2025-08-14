@@ -58,6 +58,7 @@ interface PreviewPanelProps {
   selectedVersion?: string
   setSelectedVersion?: (version: string) => void
   handleRegenerateApp?: (saveFieldsPromise: Promise<void>) => void
+  previewKey?: number // Key to force refresh when regeneration happens
 }
 
 export const PreviewPanel = ({
@@ -72,10 +73,14 @@ export const PreviewPanel = ({
   selectedVersion,
   setSelectedVersion,
   handleRegenerateApp,
+  previewKey: externalPreviewKey,
 }: PreviewPanelProps) => {
-  // Generate a unique key whenever preview_url changes to force iframe re-render
-  const [previewKey, setPreviewKey] = useState(Date.now());
+  // Use both local state for URL changes and external key for regeneration
+  const [localPreviewKey, setLocalPreviewKey] = useState(Date.now());
   const [currentPreviewUrl, setCurrentPreviewUrl] = useState(app?.preview_url || '');
+  
+  // Combine local preview key and external preview key to force refresh in both scenarios
+  const combinedPreviewKey = externalPreviewKey ? `${localPreviewKey}-${externalPreviewKey}` : `${localPreviewKey}`;
   
   // Log app information for debugging
   useEffect(() => {
@@ -136,7 +141,7 @@ export const PreviewPanel = ({
       const selectedVersionData = versions.find((v: AppVersion) => v.version_id === versionId);
       if (selectedVersionData?.version_demo_url) {
         setCurrentPreviewUrl(selectedVersionData.version_demo_url);
-        setPreviewKey(Date.now()); // Force iframe refresh
+        setLocalPreviewKey(Date.now()); // Force iframe refresh
       }
     }
   };
@@ -144,11 +149,11 @@ export const PreviewPanel = ({
   // Force iframe refresh when preview_url changes
   useEffect(() => {
     if (app?.preview_url) {
-      setPreviewKey(Date.now());
+      setLocalPreviewKey(Date.now());
       setCurrentPreviewUrl(app.preview_url);
       console.log('Preview URL changed, refreshing iframe:', app.preview_url);
     }
-  }, [app?.preview_url]);
+  }, [app?.preview_url, externalPreviewKey]);
   
   // Auto-select newest version when versions change
   useEffect(() => {
@@ -165,7 +170,7 @@ export const PreviewPanel = ({
       
       setSelectedVersion(newestVersion.version_id);
       setCurrentPreviewUrl(newestVersion.version_demo_url);
-      setPreviewKey(Date.now());
+      setLocalPreviewKey(Date.now());
     }
   }, [versions, versions.length, setSelectedVersion]);
   return (
@@ -232,14 +237,14 @@ export const PreviewPanel = ({
                 variant="ghost" 
                 size="sm" 
                 className="absolute top-2 right-2 z-10 bg-white/80 hover:bg-white" 
-                onClick={() => setPreviewKey(Date.now())}
+                onClick={() => setLocalPreviewKey(Date.now())}
                 title="Refresh preview"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
               <iframe
-                key={previewKey} // Use dynamic key from state to force re-render
-                src={`${currentPreviewUrl}?timestamp=${previewKey}`} // Use same timestamp for consistency
+                key={combinedPreviewKey} // Use dynamic key from state to force re-render
+                src={`${currentPreviewUrl}?timestamp=${combinedPreviewKey}`} // Use same timestamp for consistency
                 title="App Preview"
                 className="w-full h-full border-0 bg-white"
                 style={{ height: "100%", overflow: "hidden" }}

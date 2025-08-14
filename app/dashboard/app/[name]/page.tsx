@@ -70,6 +70,7 @@ const AppPage = () => {
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([])
   const [selectedVersion, setSelectedVersion] = useState<string>("")
   const [currentUserId, setCurrentUserId] = useState<string>("")
+  const [previewKey, setPreviewKey] = useState<number>(Date.now()) // Key to force preview refresh
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
   const { toast } = useToast()
@@ -711,9 +712,18 @@ ${app.active_fields_text || ''}
       await saveFieldsPromise;
       toast.success("Field metadata has been saved successfully.");
       
-      // Simplify data_model handling to match the approach in page.tsx
-      // This uses the complete data structure from the database that includes both active and inactive fields
-      let dataModel: any = app?.data_model;
+      // Add a small delay to ensure database updates have propagated
+      console.log("Waiting for database updates to propagate...");
+      await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+      
+      // Explicitly refetch the app data to get the updated data_model after saving fields
+      // This prevents the race condition where we might use stale data
+      const freshAppData = await refetchApp();
+      const updatedApp = freshAppData.data;
+      console.log("Refetched app data after saving fields", { appId: updatedApp?.id });
+      
+      // Use the fresh data_model from the refetched app data
+      let dataModel: any = updatedApp?.data_model;
       
       // Fallback in case data_model is not available
       if (!dataModel) {
@@ -742,19 +752,28 @@ ${app.active_fields_text || ''}
           const prompt = `The Google Sheet structure has been updated. Please update the app to follow the new structure.\n\nACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText || ''}\n\nCOMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n\nThis is the complete structure of the Google Sheet with all fields in their original order. For each field:\n\n- id: Unique identifier for the column\n\n- name: Column name as shown in the sheet\n\n- type: Data type (Text, Number, Date, etc.)\n\n- active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n\n- options: For fields that have predefined options (like dropdowns)\n\n- description: Additional information about the field\n\n- originalIndex: The position of the column in the sheet (0-based)\n\nALL COLUMNS MUST BE MAINTAINED IN THE SHEET STRUCTURE, even inactive ones. For inactive fields, the generated app should just keep them blank when writing back to the sheet.\n\n${fieldsMetadataJson || ''}`;
           console.log("Regeneration prompt:", prompt);
           
-          // Use the existing handleSendMessage function by setting the message and triggering it
-          setMessage(prompt);
-          
-          // Create and dispatch a synthetic event for handleSendMessage
-          const syntheticEvent = { preventDefault: () => {} } as React.FormEvent;
-          handleSendMessage(syntheticEvent);
+          // Directly call the sendMessageMutation with the prompt
+          // This ensures the message is actually sent without relying on state updates
+          console.log("Sending regeneration prompt directly to sendMessageMutation");
+          sendMessageMutation.mutate(prompt);
           
           // Update the app query data to refresh
           queryClient.invalidateQueries({
             queryKey: ["app", app?.id],
           });
           
+          // Show success toast
           toast.success("Update prompt sent. Your app will regenerate based on the new sheet structure.");
+          
+          // Automatically switch to preview tab after a short delay to allow regeneration to start
+          setTimeout(() => {
+            // Switch to preview tab
+            setActiveTab("preview");
+            
+            // Force refresh the preview by incrementing the key
+            // This is the same technique used in PreviewPanel when URL changes
+            setPreviewKey(Date.now());
+          }, 1000);
         } catch (e) {
           console.error('[Regenerate] Failed to send prompt to messages API', e);
           toast.error(`Failed to send update prompt: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -837,6 +856,7 @@ ${app.active_fields_text || ''}
           selectedVersion={selectedVersion}
           setSelectedVersion={setSelectedVersion}
           handleRegenerateApp={handleRegenerateApp}
+          previewKey={previewKey} // Pass previewKey to force refresh
         />
       </div>
 
