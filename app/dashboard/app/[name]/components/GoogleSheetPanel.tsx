@@ -22,10 +22,14 @@ interface GoogleSheetPanelProps {
   app: {
     id: string;
     google_sheet?: string;
+    chat_id?: string;
+    name?: string;
+    data_model?: string;
   };
+  handleRegenerateApp?: (saveFieldsPromise: Promise<void>) => void;
 }
 
-export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
+export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app, handleRegenerateApp }) => {
   const [activeTab, setActiveTab] = useState<string>("data");
   const [hasChanges, setHasChanges] = useState<boolean>(false);
   const [updateGlobal, setUpdateGlobal] = useState<boolean>(false);
@@ -147,6 +151,29 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
     }
   });
 
+  // Prepare for regenerating the app by passing the saveFields promise to parent
+  const prepareRegenerateApp = async () => {
+    try {
+      setShowRegenerateDialog(false);
+      if (handleRegenerateApp) {
+        // Create a promise that will save fields
+        const saveFieldsPromise = saveFieldsMutation.mutateAsync();
+        
+        // Pass this promise to the parent component's handleRegenerateApp function
+        handleRegenerateApp(saveFieldsPromise);
+        
+        // After everything is done, reset local state
+        await saveFieldsPromise;
+        setHasChanges(false);
+      } else {
+        console.warn("handleRegenerateApp function not provided to GoogleSheetPanel");
+        toast.error("App regeneration is not available");
+      }
+    } catch (error) {
+      console.error("Failed to prepare for app regeneration:", error);
+    }
+  };
+
   // Save field changes without regenerating the app
   const handleSaveFieldsOnly = async () => {
     try {
@@ -154,53 +181,6 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
     } catch (error) {
       console.error("Failed to save field changes:", error);
     }
-  };
-
-  // Regenerate app mutation
-  const regenerateAppMutation = useMutation({
-    mutationFn: async () => {
-      if (!app?.id) throw new Error("App ID not available");
-      
-      // First save the fields
-      await saveFieldsMutation.mutateAsync();
-      
-      // Then call the regenerate API
-      const response = await fetch(
-        `/api/apps/${app.id}/regenerate`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to regenerate app: ${response.status} ${response.statusText}`
-        );
-      }
-
-      return await response.json();
-    },
-    onSuccess: () => {
-      toast.success("Your app is being regenerated with the updated field configurations.");
-      setShowRegenerateDialog(false);
-      setHasChanges(false);
-      
-      // Invalidate app query data to refresh
-      queryClient.invalidateQueries({
-        queryKey: ["app", app?.id],
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to regenerate app: ${error.message}`);
-    }
-  });
-
-  // Save field changes and regenerate the app
-  const handleRegenerateApp = async () => {
-    await regenerateAppMutation.mutateAsync();
   };
 
   return (
@@ -254,7 +234,7 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
             <Button 
               variant="outline" 
               onClick={handleSaveFieldsOnly}
-              disabled={saveFieldsMutation.isPending || regenerateAppMutation.isPending}
+              disabled={saveFieldsMutation.isPending}
             >
               {saveFieldsMutation.isPending ? (
                 <>
@@ -267,16 +247,9 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
             </Button>
             <Button 
               onClick={() => setShowRegenerateDialog(true)}
-              disabled={saveFieldsMutation.isPending || regenerateAppMutation.isPending}
+              disabled={saveFieldsMutation.isPending}
             >
-              {regenerateAppMutation.isPending ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Saving & Regenerating...
-                </>
-              ) : (
-                "Save & Regenerate App"
-              )}
+              Save & Regenerate App
             </Button>
           </div>
         </div>
@@ -299,10 +272,11 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
               </Button>
             </DialogClose>
             <Button 
-              onClick={handleRegenerateApp}
-              disabled={regenerateAppMutation.isPending}
+              variant="default" 
+              onClick={prepareRegenerateApp}
+              disabled={!handleRegenerateApp}
             >
-              {regenerateAppMutation.isPending ? (
+              {saveFieldsMutation.isPending ? (
                 <>
                   <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
                   Regenerating...

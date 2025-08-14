@@ -109,7 +109,8 @@ CREATE TABLE public.apps (
   created_by UUID REFERENCES auth.users(id) NOT NULL,
   updated_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  data_model JSONB,
 );
 
 -- Create indexes for common queries

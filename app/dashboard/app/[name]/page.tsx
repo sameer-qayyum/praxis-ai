@@ -698,6 +698,76 @@ ${app.active_fields_text || ''}
       deployMutation.mutate()
     }
   }
+  
+  // Function to handle regenerating the app, to be passed to GoogleSheetPanel
+  const handleRegenerateApp = async (saveFieldsPromise: Promise<void>) => {
+    if (!app?.id) {
+      toast.error("App ID not available");
+      return;
+    }
+    
+    try {
+      // First save the fields by awaiting the promise passed from GoogleSheetPanel
+      await saveFieldsPromise;
+      toast.success("Field metadata has been saved successfully.");
+      
+      // Simplify data_model handling to match the approach in page.tsx
+      // This uses the complete data structure from the database that includes both active and inactive fields
+      let dataModel: any = app?.data_model;
+      
+      // Fallback in case data_model is not available
+      if (!dataModel) {
+        try {
+          console.warn('[Regenerate] No data_model found, fetching columns as fallback');
+          const refreshed = await fetch(`/api/dashboard/sheets/${app.id}/columns?t=${Date.now()}`);
+          const refreshedData = refreshed.ok ? await refreshed.json() : { columns: [] };
+          dataModel = refreshedData.columns;
+        } catch (e) {
+          console.warn('[Regenerate] Failed to refetch columns for prompt, proceeding without detailed structure', e);
+        }
+      }
+
+      // Build prompt for the regeneration
+      if (app?.chat_id) {
+        try {
+          // Use the same approach as in page.tsx to stringify the data_model
+          const fieldsMetadataJson = JSON.stringify(dataModel, null, 2);
+          
+          // Extract active field names from data_model
+          const columns: any[] = Array.isArray(dataModel) ? dataModel : 
+                        (dataModel && typeof dataModel === 'object' && 'columns' in dataModel ? dataModel.columns : []);
+          const activeNames = columns.filter((c: any) => c?.active === true).map((c: any) => c?.name).filter(Boolean);
+          const activeFieldsText = activeNames.join(', ');
+          
+          const prompt = `The Google Sheet structure has been updated. Please update the app to follow the new structure.\n\nACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText || ''}\n\nCOMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n\nThis is the complete structure of the Google Sheet with all fields in their original order. For each field:\n\n- id: Unique identifier for the column\n\n- name: Column name as shown in the sheet\n\n- type: Data type (Text, Number, Date, etc.)\n\n- active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n\n- options: For fields that have predefined options (like dropdowns)\n\n- description: Additional information about the field\n\n- originalIndex: The position of the column in the sheet (0-based)\n\nALL COLUMNS MUST BE MAINTAINED IN THE SHEET STRUCTURE, even inactive ones. For inactive fields, the generated app should just keep them blank when writing back to the sheet.\n\n${fieldsMetadataJson || ''}`;
+          console.log("Regeneration prompt:", prompt);
+          
+          // Use the existing handleSendMessage function by setting the message and triggering it
+          setMessage(prompt);
+          
+          // Create and dispatch a synthetic event for handleSendMessage
+          const syntheticEvent = { preventDefault: () => {} } as React.FormEvent;
+          handleSendMessage(syntheticEvent);
+          
+          // Update the app query data to refresh
+          queryClient.invalidateQueries({
+            queryKey: ["app", app?.id],
+          });
+          
+          toast.success("Update prompt sent. Your app will regenerate based on the new sheet structure.");
+        } catch (e) {
+          console.error('[Regenerate] Failed to send prompt to messages API', e);
+          toast.error(`Failed to send update prompt: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        }
+      } else {
+        console.warn('[Regenerate] No chat_id available; cannot regenerate app');
+        toast.error("Cannot regenerate app: No chat ID available");
+      }
+    } catch (error) {
+      console.error("Failed to save field changes or regenerate app:", error);
+      toast.error(`Failed to regenerate app: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
 
   if (isLoadingApp) {
     return <AppSkeleton />
@@ -761,11 +831,12 @@ ${app.active_fields_text || ''}
           setActiveTab={setActiveTab}
           isFullscreen={isFullscreen}
           messages={messages}
-          isDeploying={isDeploying}
+          isDeploying={isDeploying || deployMutation.isPending}
           handleDeploy={handleDeploy}
-          isGenerating={isGenerating || generateAppMutation.isPending}
+          isGenerating={sendMessageMutation.isPending}
           selectedVersion={selectedVersion}
           setSelectedVersion={setSelectedVersion}
+          handleRegenerateApp={handleRegenerateApp}
         />
       </div>
 

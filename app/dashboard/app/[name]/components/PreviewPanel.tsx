@@ -57,6 +57,7 @@ interface PreviewPanelProps {
   isGenerating?: boolean
   selectedVersion?: string
   setSelectedVersion?: (version: string) => void
+  handleRegenerateApp?: (saveFieldsPromise: Promise<void>) => void
 }
 
 export const PreviewPanel = ({
@@ -70,6 +71,7 @@ export const PreviewPanel = ({
   isGenerating = false,
   selectedVersion,
   setSelectedVersion,
+  handleRegenerateApp,
 }: PreviewPanelProps) => {
   // Generate a unique key whenever preview_url changes to force iframe re-render
   const [previewKey, setPreviewKey] = useState(Date.now());
@@ -261,7 +263,10 @@ export const PreviewPanel = ({
         </TabsContent>
 
         <TabsContent value="code" className="flex-1 m-0 p-0 overflow-hidden">
-          <GoogleSheetPanel app={app} />
+          <GoogleSheetPanel 
+            app={app} 
+            handleRegenerateApp={handleRegenerateApp} 
+          />
         </TabsContent>
       </Tabs>
     </div>
