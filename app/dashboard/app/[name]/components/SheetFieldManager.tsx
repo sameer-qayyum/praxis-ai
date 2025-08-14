@@ -219,15 +219,12 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     // Debug: snapshot of current fields state for matching
     try {
       console.group('[FieldsUI][buildDisplayedFields] Matching Context');
-      console.log('fields(state):', fields.map((f) => ({ id: f.id, name: f.name, active: f.active, originalIndex: f.originalIndex })));
-      console.log('renameMapNewToOld:', Object.fromEntries(renameMapNewToOld));
       console.groupEnd();
     } catch {}
     // Prevent many-to-one reuse of the same existing field
     const usedExistingIds = new Set<string>();
     const activeMerged = syncResult.mergedColumns.filter((c: any) => !c.isRemoved);
     const preview: Field[] = activeMerged.map((c: any, idx: number) => {
-      let debugInfo: any = { idx, incoming: { name: c.name, id: c.id } };
       let existing = existingByName.get(c.name);
       if (!existing && c.id) existing = existingById.get(String(c.id));
       if (!existing) {
@@ -246,7 +243,6 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
           name: c.name,
           originalIndex: idx,
         } as Field;
-        try { console.debug('[FieldsUI][buildDisplayedFields] match-existing', { ...debugInfo, matchedExisting: { id: existing.id, name: existing.name, active: existing.active }, outActive: out.active }); } catch {}
         return out;
       }
       // New column preview (type defaults to text)
@@ -260,7 +256,6 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         originalIndex: idx,
         sampleData: c.sampleData || [],
       } as Field;
-      try { console.debug('[FieldsUI][buildDisplayedFields] new-column', { ...debugInfo, outActive: outNew.active }); } catch {}
       return outNew;
     });
     // Append removed columns so users can see which previously existing fields are gone
