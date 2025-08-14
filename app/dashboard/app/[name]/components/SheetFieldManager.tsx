@@ -114,6 +114,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
   const queryClient = useQueryClient();
   const supabase = createClient();
   const { checkSheetColumnChanges, isConnected } = useGoogleSheets();
+  // Explicit syncing state for the "Sync With Google Sheet" action
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Related apps that use the same google_sheet connection
   const {
@@ -578,7 +580,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
 
   // Handle refresh: prefer live sheet comparison when possible
   const handleRefreshClick = async () => {
-    if (isLoading) return;
+    if (isLoading || isSyncing) return;
+    setIsSyncing(true);
     try {
       if (currentSheetId && isConnected) {
         const result = await checkSheetColumnChanges(currentSheetId);
@@ -636,6 +639,8 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
     } catch (e) {
       console.error("Refresh check failed, falling back to refetch:", e);
       await refetch();
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -734,12 +739,12 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
             variant="outline"
             size="sm"
             onClick={handleRefreshClick}
-            disabled={isLoading}
+            disabled={isLoading || isSyncing || updateMetadata.isPending}
           >
             <RefreshCw
-              className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`}
+              className={`h-4 w-4 mr-1 ${(isLoading || isSyncing) ? "animate-spin" : ""}`}
             />
-            Refresh Fields
+            {isSyncing ? 'Syncing...' : 'Sync With Google Sheet'}
           </Button>
           <Button
             size="sm"

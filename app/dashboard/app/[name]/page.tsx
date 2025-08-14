@@ -141,7 +141,6 @@ const AppPage = () => {
     if (app?.id) {
       // If we already have a chat_id, explicitly trigger chat message fetch
       if (app.chat_id) {
-        console.log('💬 App has existing chat_id, triggering message fetch:', app.chat_id);
         // The query is set to enabled: !!app?.chat_id, so it will auto-fetch
         // but we can explicitly trigger it to be sure
         refetchChat();

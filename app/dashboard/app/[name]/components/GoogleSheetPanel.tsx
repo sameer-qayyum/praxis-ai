@@ -254,7 +254,7 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
             <Button 
               variant="outline" 
               onClick={handleSaveFieldsOnly}
-              disabled={saveFieldsMutation.isPending}
+              disabled={saveFieldsMutation.isPending || regenerateAppMutation.isPending}
             >
               {saveFieldsMutation.isPending ? (
                 <>
@@ -267,9 +267,16 @@ export const GoogleSheetPanel: React.FC<GoogleSheetPanelProps> = ({ app }) => {
             </Button>
             <Button 
               onClick={() => setShowRegenerateDialog(true)}
-              disabled={saveFieldsMutation.isPending}
+              disabled={saveFieldsMutation.isPending || regenerateAppMutation.isPending}
             >
-              Save & Regenerate App
+              {regenerateAppMutation.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Saving & Regenerating...
+                </>
+              ) : (
+                "Save & Regenerate App"
+              )}
             </Button>
           </div>
         </div>
