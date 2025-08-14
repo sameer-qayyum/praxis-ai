@@ -375,21 +375,114 @@ const saveFieldsMutation = useMutation({
 
 ### 2. Regenerate App
 
-The "Save & Regenerate App" button triggers a complete app rebuild:
+The "Save & Regenerate App" button triggers a complete app rebuild using a centralized approach:
 
 ```typescript
 // In GoogleSheetPanel.tsx
-const regenerateAppMutation = useMutation({
-  mutationFn: async () => {
-    // First save fields
-    await saveFieldsMutation.mutateAsync();
+const regenerateAppButton = (
+  <Button 
+    variant="default" 
+    size="sm"
+    disabled={!hasChanges || isRegeneratingApp} 
+    onClick={() => {
+      // Create a promise that will save the fields
+      const savePromise = saveFieldsMutation.mutateAsync();
+      // Pass the promise to the handler in page.tsx
+      handleRegenerateApp(savePromise);
+    }}
+  >
+    {isRegeneratingApp ? (
+      <>
+        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+        Regenerating...
+      </>
+    ) : (
+      <>
+        <RefreshCcw className="mr-1 h-4 w-4" />
+        Save & Regenerate App
+      </>
+    )}
+  </Button>
+);
+```
+
+// In page.tsx
+const handleRegenerateApp = async (saveFieldsPromise: Promise<void>) => {
+  if (!app?.id) {
+    toast.error("App ID not available");
+    return;
+  }
+  
+  try {
+    // First save the fields by awaiting the promise passed from GoogleSheetPanel
+    await saveFieldsPromise;
+    toast.success("Field metadata has been saved successfully.");
     
-    // Then trigger regeneration
-    const response = await fetch(`/api/dashboard/apps/${app.id}/regenerate`, {
-      method: "POST"
-    });
+    // Add a small delay to ensure database updates have propagated
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Explicitly refetch the app data to get the updated data_model after saving fields
+    const freshAppData = await refetchApp();
+    const updatedApp = freshAppData.data;
+    
+    // Use the fresh data_model from the refetched app data
+    let dataModel: any = updatedApp?.data_model;
+    
+    // Fallback in case data_model is not available
+    if (!dataModel) {
+      // Fetch columns directly from the API as a fallback
+      const refreshed = await fetch(`/api/dashboard/sheets/${app.id}/columns?t=${Date.now()}`);
+      const refreshedData = refreshed.ok ? await refreshed.json() : { columns: [] };
+      dataModel = refreshedData.columns;
+    }
+    
+    // Build prompt for the regeneration
+    if (app?.chat_id) {
+      try {
+        // Create a structured JSON representation of the data model
+        const fieldsMetadataJson = JSON.stringify(dataModel, null, 2);
+        
+        // Build a comprehensive prompt that includes all field metadata
+        // This includes both active and inactive fields to ensure the structure is preserved
+        const prompt = `Please regenerate the Google Sheet app with the following updated field structure.
+
+COMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):
+
+${fieldsMetadataJson}`;
+        
+        // Set UI state for regeneration
+        setIsRegeneratingApp(true);
+        setActiveTab("preview"); // Auto-switch to preview tab
+        
+        // Send the regeneration prompt using the existing message API
+        // This reuses the same endpoint used for normal chat messages
+        await sendMessageMutation.mutateAsync(prompt);
+        
+        // Force reload of preview after regeneration
+        setPreviewKey(prev => prev + 1);
+        
+        toast.success("App regenerated successfully!");
+      } catch (error) {
+        console.error("Regeneration failed:", error);
+        toast.error("Failed to regenerate app");
+      } finally {
+        setIsRegeneratingApp(false);
+      }
+    } else {
+      toast.error("Chat not available for regeneration");
+    }
   }
 });
+
+// Key points about the regeneration flow:
+//
+// 1. Centralized in page.tsx - All regeneration logic is now in the main app page component
+// 2. Uses promises for coordination - GoogleSheetPanel initiates field saving and passes the promise
+// 3. Adds delay to avoid race conditions - Small timeout ensures DB updates propagate before refetch
+// 4. Explicitly refetches app data - Gets fresh data_model after fields are saved
+// 5. Reuses message API - Uses existing sendMessageMutation for API consistency
+// 6. Automatic UI updates - Switches to preview tab and refreshes preview iframe
+// 7. Includes complete field metadata - Both active and inactive fields are included in regeneration
 ```
 
 ## Special Cases
