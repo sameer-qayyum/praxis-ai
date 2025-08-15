@@ -287,10 +287,7 @@ ${app.active_fields_text || ''}
 
         To submit form data to the Google Sheet, use this secure endpoint:
 
-        POST ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/submit
-
-
-        The path_secret will be automatically generated for your app. When this app is viewed by the public, the full URL including the secret path will be provided. Send form data as JSON in the request body, with field names matching the Google Sheet column names. Rate limits apply (100 submissions per hour per app).`;
+        POST ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/submit`;
         }
         
         // Add read access instructions if needed
@@ -641,6 +638,14 @@ ${app.active_fields_text || ''}
     mutationFn: async () => {
       if (!app) return null
 
+      console.log('[FRONTEND] Starting deploy with selectedVersion:', selectedVersion);
+      console.log('[FRONTEND] App data:', { 
+        chat_id: app.chat_id, 
+        name: app.name, 
+        v0_project_id: app.v0_project_id,
+        vercel_project_id: app.vercel_project_id 
+      });
+
       setIsDeploying(true)
       const response = await fetch("/api/v0/deploy", {
         method: "POST",
@@ -652,6 +657,7 @@ ${app.active_fields_text || ''}
           name: app.name || `App-${app.id}`,
           projectId: app.v0_project_id,
           vercelProjectId: app.vercel_project_id || undefined,
+          versionId: selectedVersion || "latest",
         }),
       })
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { v0 } from 'v0-sdk';
 
 // Define interfaces for clarity
 interface VercelFile {
@@ -55,153 +56,212 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Check if user is authenticated
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    console.log('[DEPLOY] Starting deployment request');
+
+    // Check authentication
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    if (authError || !session?.user) {
+      console.log('[DEPLOY] Authentication failed:', authError);
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    console.log('[DEPLOY] User authenticated:', session.user.id);
+
+    // Get API key from environment (v0 SDK will use this)
+    const v0ApiKey = process.env.V0_API_KEY;
+    if (!v0ApiKey) {
       return NextResponse.json(
-        { error: "Unauthorized: Please login first" },
-        { status: 401 }
+        { error: "Missing V0_API_KEY in server configuration" },
+        { status: 500 }
       );
     }
+    // Note: v0 SDK is imported as `v0` and used directly; no manual initialization call is required.
 
-    // Get API keys from environment
-    const v0ApiKey = process.env.V0_API_KEY;
-    const vercelToken = process.env.VERCEL_TOKEN;
+    // Parse and validate request body
+    const body = await request.json()
+    console.log('[DEPLOY] Request body:', JSON.stringify(body, null, 2));
     
-    if (!v0ApiKey || !vercelToken) {
+    const { name, chatId, versionId, projectId, appId, templateId, googleSheetId, vercelProjectId } = body
+
+    // Validate required fields
+    if (!name || !chatId || !versionId) {
+      console.log('[DEPLOY] Missing required fields:', { name: !!name, chatId: !!chatId, versionId: !!versionId });
       return NextResponse.json(
-        { error: "Missing required API keys in server configuration" },
+        { error: "Missing required fields: name, chatId, and versionId are required" },
+        { status: 400 }
+      )
+    }
+    console.log('[DEPLOY] Required fields validated:', { name, chatId, versionId });
+
+    // Locate or create app row
+    console.log('[DEPLOY] Looking for existing app row with:', { appId, chatId });
+    let appIdToUse: string | null = appId ?? null;
+    let appRow: any = null;
+    let appRowExisted = false;
+    try {
+      if (appIdToUse) {
+        const { data, error } = await supabase
+          .from('apps')
+          .select('*')
+          .eq('id', appIdToUse)
+          .single();
+        if (error && error.code !== 'PGRST116') throw error; // PGRST116: No rows
+        appRow = data ?? null;
+        if (appRow) {
+          appRowExisted = true;
+          console.log('[DEPLOY] Found existing app by ID:', appRow.id);
+        } else {
+          console.log('[DEPLOY] No app found by ID:', appIdToUse);
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('apps')
+          .select('*')
+          .eq('chat_id', chatId)
+          .limit(1)
+          .single();
+        if (error && error.code !== 'PGRST116') throw error;
+        appRow = data ?? null;
+        if (appRow) {
+          appRowExisted = true;
+          console.log('[DEPLOY] Found existing app by chatId:', appRow.id);
+        } else {
+          console.log('[DEPLOY] No app found by chatId:', chatId);
+        }
+      }
+
+      if (!appRow) {
+        const { data: createdApp, error: createErr } = await supabase
+          .from('apps')
+          .insert({
+            chat_id: chatId,
+            v0_project_id: null,
+            created_by: session.user.id,
+            updated_by: session.user.id,
+          })
+          .select()
+          .single();
+        if (createErr) throw createErr;
+        appIdToUse = createdApp.id;
+        appRow = createdApp;
+        console.log('[DEPLOY] Created new app row:', createdApp.id);
+      } else {
+        appIdToUse = appRow.id;
+      }
+    } catch (e) {
+      console.error('Error locating/creating app row:', e);
+      return NextResponse.json(
+        { error: 'Failed to locate or create app record' },
         { status: 500 }
       );
     }
 
-    // Parse request body
-    const body = await request.json();
-    const { 
-      chatId, 
-      name,
-      projectId,  // The v0 project ID
-      googleSheetId,
-      templateId,
-      vercelProjectId  // For redeployment
-    } = body;
+    // Flag for redeployment (based on whether an existing app row was updated vs created)
+    const isRedeployment = appRowExisted;
     
-    if (!chatId || !name) {
-      return NextResponse.json(
-        { error: "Chat ID and name are required" },
-        { status: 400 }
-      );
-    }
-
-    // Flag for redeployment
-    const isRedeployment = !!vercelProjectId;
-    
-    // Get chat details from v0 to extract files
-    const chatResponse = await fetch(`https://api.v0.dev/v1/chats/${chatId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${v0ApiKey}`
-      }
-    });
-    
-    if (!chatResponse.ok) {
-      return NextResponse.json(
-        { error: "Failed to retrieve chat details", details: await chatResponse.text() },
-        { status: chatResponse.status }
-      );
-    }
-    
-    const chat = await chatResponse.json();
-    
-    // Extract files from chat response
-    const files = extractFiles(chat);
-    
-    // Add essential files
-    const processedFiles = await addEssentialFiles(files, name);
-    
-    let v0ProjectId = projectId;
-    
-    // If project ID was not provided, try to get it from the database
+    // Resolve v0 project ID: request > app row > create
+    console.log('[DEPLOY] Resolving v0 project ID. Request projectId:', projectId, 'App v0_project_id:', appRow?.v0_project_id);
+    let v0ProjectId: string | undefined = projectId;
     if (!v0ProjectId) {
-      const { data: projectData } = await supabase
-        .from('v0_projects')
-        .select('v0_project_id')
-        .eq('chat_id', chatId)
-        .single();
-      
-      if (projectData) {
-        v0ProjectId = projectData.v0_project_id;
+      if (appRow?.v0_project_id) {
+        v0ProjectId = appRow.v0_project_id as string;
+        console.log('[DEPLOY] Using existing v0 project ID from app:', v0ProjectId);
       } else {
-        return NextResponse.json(
-          { error: "No project ID found for this chat" },
-          { status: 400 }
-        );
+        // Create a new v0 project using SDK
+        console.log('[DEPLOY] Creating new v0 project with name:', name);
+        const createdProject = await v0.projects.create({ name });
+        v0ProjectId = createdProject.id as string;
+        console.log('[DEPLOY] Created new v0 project:', v0ProjectId);
       }
-    }
-    
-    // Handle Vercel project creation or use existing
-    let vercelProjectInfo;
-    
-    if (isRedeployment) {
-      // Use existing Vercel project
-      vercelProjectInfo = { id: vercelProjectId, name };
     } else {
-      // Create a new Vercel project via v0 integration
-      const vercelProjectResponse = await fetch('https://api.v0.dev/v1/integrations/vercel/projects', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${v0ApiKey}`
-        },
-        body: JSON.stringify({ 
-          projectId: v0ProjectId,
-          name,
-          framework: 'next',
-          description: 'Project created from Praxis AI'
-        })
-      });
-      
-      if (!vercelProjectResponse.ok) {
-        return NextResponse.json(
-          { error: "Failed to create Vercel project", details: await vercelProjectResponse.text() },
-          { status: vercelProjectResponse.status }
-        );
-      }
-      
-      vercelProjectInfo = await vercelProjectResponse.json();
+      console.log('[DEPLOY] Using v0 project ID from request:', v0ProjectId);
     }
-
-    // Deploy to Vercel
-    const deploymentResponse = await fetch('https://api.vercel.com/v13/deployments', {
+    // Ensure chat is linked to project
+    console.log('[DEPLOY] Assigning chat to project:', { projectId: v0ProjectId, chatId });
+    await v0.projects.assign({ projectId: v0ProjectId as string, chatId });
+    console.log('[DEPLOY] Chat assigned to project successfully');
+    // Persist v0_project_id on app row if needed
+    if (!appRow?.v0_project_id || appRow.v0_project_id !== v0ProjectId) {
+      const { data: updatedAppRow, error: updV0ProjErr } = await supabase
+        .from('apps')
+        .update({
+          v0_project_id: v0ProjectId,
+          updated_by: session.user.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', appIdToUse as string)
+        .select()
+        .single();
+      if (!updV0ProjErr && updatedAppRow) {
+        appRow = updatedAppRow;
+      }
+    }
+    
+    // Create deployment via v0 (v0 handles Vercel integration)
+    console.log('[DEPLOY] Creating deployment with:', { projectId: v0ProjectId, chatId, versionId });
+    
+    // Use direct API call since v0.deployments.create doesn't exist in current SDK version
+    const deploymentResponse = await fetch('https://api.v0.dev/v1/deployments', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${vercelToken}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${v0ApiKey}`
       },
       body: JSON.stringify({
-        name: vercelProjectInfo.name,
-        project: vercelProjectInfo.id,
-        target: 'production',
-        files: processedFiles,
-        projectSettings: {
-          framework: 'nextjs',
-          installCommand: 'npm install',
-          buildCommand: 'npm run build',
-          devCommand: 'npm run dev',
-          outputDirectory: '.next'
-        }
+        projectId: v0ProjectId,
+        chatId,
+        versionId,
       })
     });
     
     if (!deploymentResponse.ok) {
-      return NextResponse.json(
-        { error: "Failed to deploy to Vercel", details: await deploymentResponse.text() },
-        { status: deploymentResponse.status }
-      );
+      const errorText = await deploymentResponse.text();
+      console.error('[DEPLOY] Deployment API error:', deploymentResponse.status, errorText);
+      throw new Error(`Deployment failed: ${deploymentResponse.status} ${errorText}`);
     }
-
-    const deploymentData = await deploymentResponse.json();
-    const deploymentUrl = `https://${deploymentData.url}`;
+    
+    const deployment = await deploymentResponse.json();
+    console.log('[DEPLOY] Deployment created:', JSON.stringify(deployment, null, 2));
+    
+    // Check all possible URL fields in the deployment response
+    console.log('[DEPLOY] Available URL fields:', {
+      webUrl: deployment.webUrl,
+      url: deployment.url,
+      productionUrl: deployment.productionUrl,
+      previewUrl: deployment.previewUrl,
+      inspectorUrl: deployment.inspectorUrl,
+      apiUrl: deployment.apiUrl
+    });
+    
+    const deploymentId = (deployment as any).id as string;
+    
+    // Extract production URL from inspector URL
+    let deploymentUrl = '';
+    if (deployment.inspectorUrl) {
+      // Extract project name from inspector URL: https://vercel.com/{team}/{project-name}/{deployment-id}
+      const inspectorMatch = deployment.inspectorUrl.match(/vercel\.com\/[^\/]+\/([^\/]+)\//);
+      if (inspectorMatch) {
+        const projectName = inspectorMatch[1];
+        deploymentUrl = `https://${projectName}.vercel.app`;
+        console.log('[DEPLOY] Extracted production URL from inspector:', deploymentUrl);
+      }
+    }
+    
+    // Fallback to webUrl if extraction failed
+    if (!deploymentUrl) {
+      deploymentUrl = ((deployment as any).webUrl || (deployment as any).url || '') as string;
+      if (deploymentUrl && !/^https?:\/\//i.test(deploymentUrl)) {
+        deploymentUrl = `https://${deploymentUrl}`;
+      }
+      console.log('[DEPLOY] Using fallback webUrl:', deploymentUrl);
+    }
+    // v0 deployments don't directly expose vercelProjectId, so we'll keep it null for now
+    const vercelProjectIdFromDeployment = null;
+    
+    console.log('[DEPLOY] Extracted deployment data:', {
+      deploymentId,
+      deploymentUrl,
+      vercelProjectIdFromDeployment
+    });
     
     // Store or update app information in the database
     let appData;
@@ -211,12 +271,13 @@ export async function POST(request: NextRequest) {
       const { data: updatedApp, error: updateError } = await supabase
         .from('apps')
         .update({
-          vercel_deployment_id: deploymentData.id,
+          vercel_deployment_id: deploymentId,
           app_url: deploymentUrl,
+          status: 'deployed',
           updated_by: session.user.id,
           updated_at: new Date().toISOString()
         })
-        .eq('vercel_project_id', vercelProjectInfo.id)
+        .eq('id', appIdToUse as string)
         .select()
         .single();
       
@@ -226,50 +287,78 @@ export async function POST(request: NextRequest) {
         appData = updatedApp;
       }
     } else {
-      // Create new app record
-      const { data: newApp, error: insertError } = await supabase
-        .from('apps')
-        .insert({
-          chat_id: chatId,
-          v0_project_id: v0ProjectId,
-          vercel_project_id: vercelProjectInfo.id,
-          template_id: templateId || null,
-          google_sheet: googleSheetId || null,
-          app_url: deploymentUrl,
-          vercel_deployment_id: deploymentData.id,
-          created_by: session.user.id,
-          updated_by: session.user.id
-        })
-        .select()
-        .single();
-      
-      if (insertError) {
-        console.error("Error storing app information:", insertError);
+      // Upsert app record: update existing minimal row if found/created earlier, else insert
+      if (appIdToUse) {
+        const { data: updatedExisting, error: updErr } = await supabase
+          .from('apps')
+          .update({
+            chat_id: chatId,
+            v0_project_id: v0ProjectId,
+            vercel_project_id: vercelProjectIdFromDeployment,
+            template_id: templateId || null,
+            google_sheet: googleSheetId || null,
+            app_url: deploymentUrl,
+            vercel_deployment_id: deploymentId,
+            status: 'deployed',
+            updated_by: session.user.id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', appIdToUse)
+          .select()
+          .single();
+        if (updErr) {
+          console.error('Error updating existing app:', updErr);
+        } else {
+          appData = updatedExisting;
+        }
       } else {
-        appData = newApp;
+        const { data: newApp, error: insertError } = await supabase
+          .from('apps')
+          .insert({
+            chat_id: chatId,
+            v0_project_id: v0ProjectId,
+            vercel_project_id: vercelProjectIdFromDeployment,
+            template_id: templateId || null,
+            google_sheet: googleSheetId || null,
+            app_url: deploymentUrl,
+            vercel_deployment_id: deploymentId,
+            status: 'deployed',
+            created_by: session.user.id,
+            updated_by: session.user.id
+          })
+          .select()
+          .single();
+        if (insertError) {
+          console.error("Error storing app information:", insertError);
+        } else {
+          appData = newApp;
+        }
       }
     }
 
     // Return Response
-    return NextResponse.json({ 
+    const response = {
       success: true,
-      appId: appData?.id,
-      chatId: chatId,
+      appId: (appData?.id || appIdToUse),
       v0ProjectId: v0ProjectId,
-      vercelProjectId: vercelProjectInfo.id,
-      projectName: name,
+      vercelProjectId: vercelProjectIdFromDeployment,
       url: deploymentUrl,
-      filesDeployed: processedFiles.length,
-      deploymentId: deploymentData.id,
-      isRedeployment: isRedeployment
-    });
+      deploymentId: deploymentId,
+      isRedeployment,
+    };
+    console.log('[DEPLOY] Deployment completed successfully:', response);
+    return NextResponse.json(response);
     
   } catch (error: any) {
-    console.error('Vercel deployment error:', error);
+    console.error('[DEPLOY] Deployment error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Deployment failed' },
+      { error: "Internal server error", details: error.message },
       { status: 500 }
-    );
+    )
   }
 }
 

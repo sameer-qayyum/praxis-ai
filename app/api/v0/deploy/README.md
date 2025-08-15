@@ -1,15 +1,14 @@
-# V0 + Vercel Deployment API
+# V0 Deployment API
 
 ## Overview
 
-This API handles the deployment of v0-generated applications to Vercel. It's designed to be called after the generation process is complete and the user has finalized their application through interaction with the v0 chat interface. The API:
+This API handles the deployment of v0-generated applications using the official v0 SDK. It follows a clean, SDK-first approach that leverages v0's built-in Vercel integration. The API:
 
-1. Takes a v0 chat ID that contains the finalized application code
-2. Extracts the files from the v0 chat response
-3. Adds any missing essential files needed for Next.js deployment
-4. Creates a new Vercel project or uses an existing one
-5. Deploys the files to Vercel
-6. Stores the deployment information in the database
+1. Resolves or creates a v0 project for the chat
+2. Assigns the chat to the v0 project
+3. Triggers deployment via v0's deployment API (which handles Vercel integration)
+4. Extracts the production URL from the deployment response
+5. Persists deployment metadata in the database
 
 ## Authentication
 
@@ -25,29 +24,33 @@ POST /api/v0/deploy
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `chatId` | string | Yes | The v0 chat ID containing the finalized application code |
-| `name` | string | Yes | The name of the application/project |
-| `projectId` | string | No | The v0 project ID (if not provided, will try to find it in the database) |
-| `googleSheetId` | string | No | Optional Google Sheet ID to associate with the app |
+| `name` | string | Yes | Display name for the application |
+| `chatId` | string | Yes | The v0 chat ID containing the application |
+| `versionId` | string | Yes | The specific version of the chat to deploy |
+| `projectId` | string | No | The v0 project ID (if not provided, will create or find existing) |
+| `appId` | string | No | Existing app ID for updates |
 | `templateId` | string | No | Optional template ID to associate with the app |
-| `vercelProjectId` | string | No | Optional existing Vercel project ID for redeployment |
+| `googleSheetId` | string | No | Optional Google Sheet ID to associate with the app |
+| `vercelProjectId` | string | No | Legacy parameter (ignored in current implementation) |
 
 ### Example Request
 
 ```json
 // New deployment
 {
-  "chatId": "chat_1234567890",
   "name": "Todo App",
-  "projectId": "prj_1234567890",
+  "chatId": "nUITw2xRXIA",
+  "versionId": "b_HQ5QjD7LKIK",
+  "templateId": "template_123",
   "googleSheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
 }
 
-// Redeployment
+// Redeployment (existing app)
 {
-  "chatId": "chat_1234567890",
   "name": "Todo App",
-  "vercelProjectId": "prj_vercel_1234567890"
+  "chatId": "nUITw2xRXIA", 
+  "versionId": "b_6Crs9xcIzdp",
+  "appId": "f977c656-8f2b-45d1-a32d-1cac9985c1b5"
 }
 ```
 
@@ -58,15 +61,12 @@ POST /api/v0/deploy
 ```json
 {
   "success": true,
-  "appId": "12345-67890-abcde",
-  "chatId": "chat_1234567890",
-  "v0ProjectId": "prj_1234567890",
-  "vercelProjectId": "prj_vercel_1234567890",
-  "projectName": "Todo App",
-  "url": "https://todo-app-12345.vercel.app",
-  "filesDeployed": 12,
-  "deploymentId": "dpl_1234567890",
-  "isRedeployment": false
+  "appId": "f977c656-8f2b-45d1-a32d-1cac9985c1b5",
+  "v0ProjectId": "dNmuuiB3B5Z",
+  "vercelProjectId": null,
+  "url": "https://v0-praxis-sheet-2-app-hj.vercel.app",
+  "deploymentId": "dpl_F5KP5hvVNoMXdCzdTwtaY5eMiaWb",
+  "isRedeployment": true
 }
 ```
 
@@ -90,19 +90,19 @@ POST /api/v0/deploy
 ## Flow
 
 1. **Authentication**: Verify the user is logged in via Supabase session
-2. **Parameter Validation**: Ensure required parameters are provided
-3. **Project ID Resolution**: 
-   - Use provided project ID or
-   - Look up project ID from the database using chat ID
-4. **File Processing**:
-   - Extract files from the v0 chat response
-   - Add missing essential files (package.json, config files, etc.)
-5. **Vercel Integration**:
-   - Create a Vercel project via v0 integration (for new deployments)
-   - Deploy the processed files to Vercel
-6. **Database Storage**:
-   - Store or update the application details in the database
-7. **Response**: Return the deployment details
+2. **Parameter Validation**: Ensure required parameters (`name`, `chatId`, `versionId`) are provided
+3. **App Record Management**: 
+   - Find existing app by `appId` or `chatId` + `created_by`
+   - Create new app record if none exists
+4. **V0 Project Resolution**: 
+   - Use provided `projectId` if available
+   - Use existing `v0_project_id` from app record if available  
+   - Create new v0 project via `v0.projects.create({ name })` if needed
+5. **Chat Assignment**: Assign chat to project via `v0.projects.assign({ projectId, chatId })`
+6. **Deployment**: Trigger deployment via v0 API (`POST /v1/deployments`)
+7. **URL Extraction**: Extract production URL from deployment inspector URL
+8. **Database Persistence**: Update app record with deployment metadata and set status to 'deployed'
+9. **Response**: Return deployment details including production URL and deployment ID
 
 ## Examples
 

@@ -180,7 +180,6 @@ export async function POST(request: NextRequest) {
             if (insertError) {
               console.error('Error inserting app version:', insertError);
             } else {
-              console.log(`Created new app version ${nextVersionNumber} for app ${appData.id}`);
               
               // Update the app's preview_url if available
               if (demoUrl) {

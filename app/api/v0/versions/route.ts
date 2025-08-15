@@ -38,13 +38,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('app_id', appId)
       .order('version_number', { ascending: false });
-      
-    console.log('[Versions API] Query results:', { 
-      appId,
-      versionsCount: versions ? versions.length : 0,
-      hasError: !!error,
-      errorMessage: error ? error.message : null
-    });
+    
     
     // Log the actual versions if available (but limit the output)
     if (versions && versions.length > 0) {

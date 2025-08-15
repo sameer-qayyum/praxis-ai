@@ -84,13 +84,6 @@ export const PreviewPanel = ({
   
   // Log app information for debugging
   useEffect(() => {
-    console.log('[PreviewPanel] App data:', {
-      id: app?.id,
-      previewUrl: app?.preview_url,
-      status: app?.status,
-      fullAppObject: app
-    });
-    
     if (!app?.id) {
       console.warn('[PreviewPanel] No app ID available - this will prevent version fetching');
     }
@@ -104,8 +97,6 @@ export const PreviewPanel = ({
         console.log('[PreviewPanel] Missing app ID or chat_id, skipping versions fetch:', { appId: app?.id, chatId: app?.chat_id });
         return { versions: [] };
       }
-      
-      console.log('[PreviewPanel] Fetching versions for app ID:', app.id, 'with chat_id:', app.chat_id);
       const response = await fetch(`/api/v0/versions?appId=${app.id}`);
       
       if (!response.ok) {
@@ -123,7 +114,6 @@ export const PreviewPanel = ({
   // Get the versions array from the response
   const versions = versionsData?.versions || [];
   useEffect(() => {
-    console.log('[PreviewPanel] Versions available:', versions.length, 'Active tab:', activeTab);
     
     if (versions.length === 0) {
       console.log('[PreviewPanel] No versions found. Make sure app_versions table has records with this app_id');
@@ -151,22 +141,15 @@ export const PreviewPanel = ({
     if (app?.preview_url) {
       setLocalPreviewKey(Date.now());
       setCurrentPreviewUrl(app.preview_url);
-      console.log('Preview URL changed, refreshing iframe:', app.preview_url);
     }
   }, [app?.preview_url, externalPreviewKey]);
   
   // Auto-select newest version when versions change
   useEffect(() => {
-    console.log('[PreviewPanel] Versions changed, count:', versions.length);
     
     if (versions.length > 0 && setSelectedVersion) {
       // Get the newest version (first in the array since it's ordered by version_number DESC)
       const newestVersion = versions[0];
-      console.log('[PreviewPanel] Auto-selecting newest version:', {
-        versionId: newestVersion.version_id,
-        versionNumber: newestVersion.version_number,
-        demoUrl: newestVersion.version_demo_url
-      });
       
       setSelectedVersion(newestVersion.version_id);
       setCurrentPreviewUrl(newestVersion.version_demo_url);
