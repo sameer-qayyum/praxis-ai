@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect, useState, useRef } from "react"
-import { notFound, useParams } from "next/navigation"
+import { notFound, useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/components/ui/use-toast"
@@ -58,6 +58,7 @@ interface Message {
 
 const AppPage = () => {
   const params = useParams()
+  const router = useRouter()
   const { name } = params
   const queryClient = useQueryClient()
   const [message, setMessage] = useState("")
@@ -71,6 +72,8 @@ const AppPage = () => {
   const [selectedVersion, setSelectedVersion] = useState<string>("")
   const [currentUserId, setCurrentUserId] = useState<string>("")
   const [previewKey, setPreviewKey] = useState<number>(Date.now()) // Key to force preview refresh
+  const [userHasPermission, setUserHasPermission] = useState<boolean | null>(null) // Track permission status
+  const [permissionCheckComplete, setPermissionCheckComplete] = useState(false) // Track if check is complete
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
   const { toast } = useToast()
@@ -106,6 +109,56 @@ const AppPage = () => {
     
     getUserSession()
   }, [supabase])
+  
+  // Check if user has permission to access this app
+  useEffect(() => {
+    const checkUserPermission = async () => {
+      // Can't check permissions until we have both app data and user ID
+      if (!app?.id || !currentUserId) {
+        return;
+      }
+      
+      try {
+        // Creator always has permission
+        if (app.created_by === currentUserId) {
+          setUserHasPermission(true);
+          setPermissionCheckComplete(true);
+          return;
+        }
+        
+        // Check app_permissions table
+        const { data, error } = await supabase
+          .from('app_permissions')
+          .select('permission_level')
+          .eq('app_id', app.id)
+          .eq('user_id', currentUserId)
+          .maybeSingle(); // Use maybeSingle instead of single to avoid errors
+        
+        if (error) {
+          console.error('Error checking app permissions:', error);
+        }
+        
+        // User has permission if there's a record with any permission level
+        setUserHasPermission(!!data);
+        setPermissionCheckComplete(true);
+      } catch (error) {
+        console.error('Permission check failed:', error);
+        setUserHasPermission(false); // Default to no permission on error
+        setPermissionCheckComplete(true);
+      }
+    };
+    
+    checkUserPermission();
+  }, [app?.id, currentUserId, supabase]);
+  
+  // Redirect if user doesn't have permission
+  useEffect(() => {
+    if (permissionCheckComplete && userHasPermission === false) {
+      // User has no permissions to this app, redirect to dashboard
+      toast.error("You don't have permission to access this app.");
+      router.push('/dashboard'); // Redirect to the main dashboard page
+    }
+  }, [permissionCheckComplete, userHasPermission, router, toast])
 
   // Fetch template data
   const {
