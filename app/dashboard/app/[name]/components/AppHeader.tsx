@@ -1,13 +1,20 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { RefreshCw, ExternalLink, Maximize2, Minimize2, Pencil, Check } from "lucide-react"
+import { RefreshCw, ExternalLink, Maximize2, Minimize2, Pencil, Check, AlertTriangle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
 import { AppPermissionsButton } from "./permissions/AppPermissionsButton"
 import { AppSettingsButton } from "./settings/AppSettingsButton"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface AppHeaderProps {
   app: {
@@ -16,6 +23,7 @@ interface AppHeaderProps {
     app_url: string
     google_sheet?: string
     requires_authentication?: boolean
+    created_by: string
   }
   isDeploying: boolean
   isFullscreen: boolean
@@ -37,9 +45,73 @@ export const AppHeader = ({
   const [isEditing, setIsEditing] = useState(false)
   const [appName, setAppName] = useState(app.name || `App ${app.id}`)
   const [previousName, setPreviousName] = useState(app.name || `App ${app.id}`)
+  const [userPermission, setUserPermission] = useState<string | null>(null)
+  const [isPermissionLoading, setIsPermissionLoading] = useState(true)
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false)
   const supabase = createClient()
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  
+  // Check user permission for this app
+  useEffect(() => {
+    const fetchUserPermission = async () => {
+      if (!app?.id || !currentUserId) {
+        setIsPermissionLoading(false)
+        return
+      }
+      
+      try {
+        // Check if user is the app creator (automatic admin)
+        if (app.created_by === currentUserId) {
+          setUserPermission('admin')
+          setIsPermissionLoading(false)
+          return
+        }
+        
+        // Otherwise check permissions table
+        const { data, error } = await supabase
+          .from('app_permissions')
+          .select('permission_level')
+          .eq('app_id', app.id)
+          .eq('user_id', currentUserId)
+          .single()
+        
+        if (error) {
+          console.error('Error fetching user permissions:', error)
+          // No explicit permission record found
+          setUserPermission('viewer') // Default to viewer
+        } else if (data) {
+          setUserPermission(data.permission_level)
+        } else {
+          setUserPermission('viewer') // Default to viewer
+        }
+      } catch (error) {
+        console.error('Permission check failed:', error)
+        setUserPermission('viewer') // Default to viewer on error
+      } finally {
+        setIsPermissionLoading(false)
+      }
+    }
+    
+    fetchUserPermission()
+  }, [app?.id, currentUserId, supabase])
+  
+  // Wrapper for deploy that checks permissions first
+  const handleDeployWithPermissionCheck = () => {
+    // Don't process if loading
+    if (isPermissionLoading) {
+      return
+    }
+    
+    // Check if user has permission to deploy (admin or editor)
+    if (userPermission === 'admin' || userPermission === 'editor') {
+      // User has permission, proceed with deploy
+      handleDeploy()
+    } else {
+      // User doesn't have permission, show dialog
+      setShowPermissionDialog(true)
+    }
+  }
   
   // Update app name mutation
   const updateAppNameMutation = useMutation({
@@ -145,16 +217,32 @@ export const AppHeader = ({
           </Button>
         )}
 
+        {/* Permission denied dialog */}
+        <Dialog open={showPermissionDialog} onOpenChange={setShowPermissionDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                Permission Required
+              </DialogTitle>
+            </DialogHeader>
+            <DialogDescription>
+              <p className="mb-4">You do not have permission to deploy this app.</p>
+              <p>Please contact the app administrator to request editor or admin access.</p>
+            </DialogDescription>
+          </DialogContent>
+        </Dialog>
+        
         <Button
           variant={isDeploying ? "secondary" : "default"}
           size="sm"
-          onClick={handleDeploy}
-          disabled={isDeploying}
+          onClick={handleDeployWithPermissionCheck}
+          disabled={isDeploying || isPermissionLoading}
         >
           <RefreshCw
-            className={`mr-2 h-4 w-4 ${isDeploying ? "animate-spin" : ""}`}
+            className={`mr-2 h-4 w-4 ${isDeploying || isPermissionLoading ? "animate-spin" : ""}`}
           />
-          {isDeploying ? "Deploying..." : "Deploy"}
+          {isDeploying ? "Deploying..." : isPermissionLoading ? "Checking..." : "Deploy"}
         </Button>
         
         {/* Permissions Button */}

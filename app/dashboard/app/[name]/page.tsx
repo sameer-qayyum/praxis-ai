@@ -882,6 +882,8 @@ ${app.active_fields_text || ''}
             uploadedFiles={uploadedFiles}
             setUploadedFiles={setUploadedFiles}
             sendMessageMutation={sendMessageMutation}
+            app={app}
+            userId={currentUserId}
           />
         </div>
       )}
