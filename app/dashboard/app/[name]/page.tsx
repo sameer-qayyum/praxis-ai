@@ -637,15 +637,6 @@ ${app.active_fields_text || ''}
   const deployMutation = useMutation({
     mutationFn: async () => {
       if (!app) return null
-
-      console.log('[FRONTEND] Starting deploy with selectedVersion:', selectedVersion);
-      console.log('[FRONTEND] App data:', { 
-        chat_id: app.chat_id, 
-        name: app.name, 
-        v0_project_id: app.v0_project_id,
-        vercel_project_id: app.vercel_project_id 
-      });
-
       setIsDeploying(true)
       const response = await fetch("/api/v0/deploy", {
         method: "POST",
@@ -772,14 +763,12 @@ ${app.active_fields_text || ''}
       toast.success("Field metadata has been saved successfully.");
       
       // Add a small delay to ensure database updates have propagated
-      console.log("Waiting for database updates to propagate...");
       await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
       
       // Explicitly refetch the app data to get the updated data_model after saving fields
       // This prevents the race condition where we might use stale data
       const freshAppData = await refetchApp();
       const updatedApp = freshAppData.data;
-      console.log("Refetched app data after saving fields", { appId: updatedApp?.id });
       
       // Use the fresh data_model from the refetched app data
       let dataModel: any = updatedApp?.data_model;
@@ -809,11 +798,9 @@ ${app.active_fields_text || ''}
           const activeFieldsText = activeNames.join(', ');
           
           const prompt = `The Google Sheet structure has been updated. Please update the app to follow the new structure.\n\nACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText || ''}\n\nCOMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n\nThis is the complete structure of the Google Sheet with all fields in their original order. For each field:\n\n- id: Unique identifier for the column\n\n- name: Column name as shown in the sheet\n\n- type: Data type (Text, Number, Date, etc.)\n\n- active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n\n- options: For fields that have predefined options (like dropdowns)\n\n- description: Additional information about the field\n\n- originalIndex: The position of the column in the sheet (0-based)\n\nALL COLUMNS MUST BE MAINTAINED IN THE SHEET STRUCTURE, even inactive ones. For inactive fields, the generated app should just keep them blank when writing back to the sheet.\n\n${fieldsMetadataJson || ''}`;
-          console.log("Regeneration prompt:", prompt);
           
           // Directly call the sendMessageMutation with the prompt
           // This ensures the message is actually sent without relying on state updates
-          console.log("Sending regeneration prompt directly to sendMessageMutation");
           sendMessageMutation.mutate(prompt);
           
           // Update the app query data to refresh
@@ -875,12 +862,6 @@ ${app.active_fields_text || ''}
           className={`border-r bg-white dark:bg-slate-900 relative ${isFullscreen ? 'hidden' : 'block'}`}
           style={{ width: isFullscreen ? '0' : '30%', height: '100%' }}
         >
-          {/* Form Submission URL - only show when app is deployed */}
-          {app?.status === "deployed" && app?.id && (
-            <div className="px-4 pt-4">
-              <FormSubmissionUrl appId={app.id} />
-            </div>
-          )}
           <ChatPanel 
             isFullscreen={isFullscreen}
             isLoadingChat={isLoadingChat}
