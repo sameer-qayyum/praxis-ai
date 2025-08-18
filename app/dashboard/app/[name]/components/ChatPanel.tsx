@@ -96,7 +96,14 @@ export const ChatPanel = ({
                     )}
                   </Avatar>
 
-                  <div className={`flex-1 space-y-1 ${msg.role === "user" ? "text-right" : ""}`}>
+                  <div className={`flex-1 space-y-2 ${msg.role === "user" ? "text-right" : ""}`}>
+                    {/* Show thinking section before assistant message */}
+                    {msg.thinking && msg.role === "assistant" && (
+                      <div className="max-w-[90%]">
+                        <ThinkingSection content={msg.thinking} />
+                      </div>
+                    )}
+
                     <div
                       className={`inline-block rounded-lg py-0 px-0 text-sm ${
                         msg.role === "user" ? "bg-gray-100 text-black-100 max-w-[80%]" : "bg-white-100 text-gray-900"
@@ -115,12 +122,6 @@ export const ChatPanel = ({
                         <div className="whitespace-pre-wrap px-2 full-width">{msg.content}</div>
                       )}
                     </div>
-
-                    {msg.thinking && (
-                      <div className="max-w-[85%] full-width">
-                        <ThinkingSection content={msg.thinking} />
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
