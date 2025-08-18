@@ -4,7 +4,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import ReactMarkdown from "react-markdown"
 import { ThinkingSection } from "@/components/thinking-section"
-import { MessageInput } from "./MessageInput"
+import { TypewriterEffect } from "@/components/typewriter-effect"
+
 
 interface Message {
   id: string
@@ -110,14 +111,39 @@ export const ChatPanel = ({
                       }`}
                     >
                       {msg.role === "assistant" ? (
-                        <div className="max-w-[100%] prose prose-sm px-2 !mx-0 !my-0 prose-p:my-1 prose-p:!mx-0 prose-headings:mt-2 prose-headings:mb-1 prose-headings:!mx-0 prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:font-semibold prose-code:text-slate-800 prose-code:bg-slate-100 dark:prose-code:text-slate-200 dark:prose-code:bg-slate-700 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:bg-slate-700 dark:prose-pre:text-slate-200 prose-pre:p-2 prose-pre:rounded dark:prose-invert">
-                          <ReactMarkdown>
-                            {msg.content.includes("</CodeProject>") 
-                              ? msg.content.split("</CodeProject>")[1].trim()
-                              : msg.content
-                            }
-                          </ReactMarkdown>
-                        </div>
+                        msg.content === "BUILDING_PLACEHOLDER" ? (
+                          <div className="px-2 py-3 text-blue-600">
+                            <TypewriterEffect 
+                              text="Generating your app..." 
+                              speed={150}
+                              className="text-sm font-medium"
+                            />
+                          </div>
+                        ) : (
+                          <div className="max-w-[100%] prose prose-sm px-2 !mx-0 !my-0 prose-p:my-1 prose-p:!mx-0 prose-headings:mt-2 prose-headings:mb-1 prose-headings:!mx-0 prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:font-semibold prose-code:text-slate-800 prose-code:bg-slate-100 dark:prose-code:text-slate-200 dark:prose-code:bg-slate-700 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:bg-slate-700 dark:prose-pre:text-slate-200 prose-pre:p-2 prose-pre:rounded dark:prose-invert">
+                            <ReactMarkdown>
+                              {(() => {
+                                let cleanContent = msg.content;
+                                
+                                // Remove <Thinking>...</Thinking> blocks (these should be in the thinking section)
+                                cleanContent = cleanContent.replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, '');
+                                
+                                // Remove <V0LaunchTasks>...</V0LaunchTasks> blocks
+                                cleanContent = cleanContent.replace(/<V0LaunchTasks>[\s\S]*?<\/V0LaunchTasks>/gi, '');
+                                
+                                // Remove <CodeProject>...</CodeProject> blocks  
+                                cleanContent = cleanContent.replace(/<CodeProject[\s\S]*?<\/CodeProject>/gi, '');
+                                
+                                // Handle legacy </CodeProject> split logic
+                                if (cleanContent.includes("</CodeProject>")) {
+                                  cleanContent = cleanContent.split("</CodeProject>")[1];
+                                }
+                                
+                                return cleanContent.trim();
+                              })()}
+                            </ReactMarkdown>
+                          </div>
+                        )
                       ) : (
                         <div className="whitespace-pre-wrap px-2 full-width">{msg.content}</div>
                       )}

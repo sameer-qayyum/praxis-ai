@@ -49,23 +49,26 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Use the v0 SDK to create a new chat
-    console.log('DEBUG - Making API request to V0 with message:');
     
     try {
-      // Create a new chat with the v0 SDK
-      const chat = await v0.chats.create({ message });
+      // Create a new chat with the v0 SDK using enhanced parameters
+      const chat = await v0.chats.create({ 
+        message,
+        system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
+        chatPrivacy: "private",
+        modelConfiguration: {
+          modelId: "v0-1.5-md", // Use the largest model for better results
+          thinking: true, // Enable thinking for better reasoning
+          imageGenerations: false
+        }
+      });
       
       if (chat.id) {
         // Store the chat and project reference in the database with the user ID to satisfy RLS
-        console.log('Updating apps table with userId:', userId, 'appId:', appId);
-        
         let appData, dbError;
         
         if (appId) {
           // If we have an appId, use direct update to modify the existing record
-          console.log('Using direct update for existing app ID:', appId);
           
           const updateData = {
             chat_id: chat.id,
@@ -86,8 +89,6 @@ export async function POST(request: NextRequest) {
           appData = result.data;
           dbError = result.error;
         } else {
-          // For new apps, we need to insert a new record
-          console.log('No appId provided, creating new app record');
           
           const insertData = {
             chat_id: chat.id,

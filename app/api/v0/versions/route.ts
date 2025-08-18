@@ -22,10 +22,8 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const appId = searchParams.get("appId");
     
-    console.log('[Versions API] Request received for appId:', appId);
     
     if (!appId) {
-      console.log('[Versions API] Missing appId parameter');
       return NextResponse.json(
         { error: "Missing required parameter: appId" },
         { status: 400 }
@@ -40,11 +38,6 @@ export async function GET(request: NextRequest) {
       .order('version_number', { ascending: false });
     
     
-    // Log the actual versions if available (but limit the output)
-    if (versions && versions.length > 0) {
-      console.log('[Versions API] First version:', versions[0]);
-    }
-    
     if (error) {
       console.error('Error fetching app versions:', error);
       return NextResponse.json(
@@ -55,7 +48,6 @@ export async function GET(request: NextRequest) {
 
     // Return the versions
     const response = { success: true, versions };
-    console.log('[Versions API] Returning response with versions count:', versions ? versions.length : 0);
     return NextResponse.json(response);
 
   } catch (error: any) {

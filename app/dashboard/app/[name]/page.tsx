@@ -6,7 +6,7 @@ import { notFound, useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/components/ui/use-toast"
-import { FormSubmissionUrl } from "@/components/dashboard/FormSubmissionUrl";
+
 
 // Import our custom components
 import { AppHeader } from "./components/AppHeader"
@@ -581,54 +581,83 @@ ${app.active_fields_text || ''}
         setFullChatData(data.fullChatData)
         
         // Update the React Query cache directly with the new data
-        // This makes the data available throughout the component without refetching
         queryClient.setQueryData(["chat", app?.chat_id], data.fullChatData)
         
-        // Update preview_url from demoUrl if it exists (either from root demo property or latestVersion.demoUrl)
+        // Update preview_url from demoUrl if it exists
         const demoUrl = data.fullChatData.demo || 
                      (data.fullChatData.latestVersion?.demoUrl) || 
                       null;
                       
         if (demoUrl && app) {
-          // Update app data in the cache with the new preview_url
           const updatedApp = {
             ...app,
             preview_url: demoUrl
           };
-          
-          // Update the app data in the React Query cache
           queryClient.setQueryData(["app", name], updatedApp);
-          
         }
         
-        console.log('Full chat data stored in cache:', data.fullChatData)
+        // Replace optimistic messages with real messages from API response
+        const messageArray = Array.isArray(data.fullChatData) ? data.fullChatData : (data.fullChatData.messages || [])
+        const firstUserMessageIndex = messageArray.findIndex((msg: any) => msg.role === "user")
+        
+        const formattedMessages = messageArray.map((msg: any, index: number) => {
+          let content = msg.content
+          let thinking = null
+
+          // Extract thinking content from <Thinking></Thinking> tags
+          if (msg.role === "assistant" && content) {
+            const thinkingMatch = content.match(/<Thinking>([\s\S]*?)<\/Thinking>/i)
+            if (thinkingMatch) {
+              thinking = thinkingMatch[1].trim()
+              content = content.replace(/<Thinking>[\s\S]*?<\/Thinking>/i, "").trim()
+            }
+
+            // Clean up V0 specific tags from content
+            content = content.replace(/<V0LaunchTasks>[\s\S]*?<\/V0LaunchTasks>/gi, '');
+            content = content.replace(/<CodeProject[\s\S]*?<\/CodeProject>/gi, '');
+            
+            // Handle legacy </CodeProject> split logic
+            if (content.includes("</CodeProject>")) {
+              content = content.split("</CodeProject>")[1];
+            }
+            
+            content = content.trim();
+          }
+          
+          // Replace first user message content with template user_prompt if available
+          const userPrompt = templateData?.user_prompt
+          if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
+            content = userPrompt
+          }
+
+          return {
+            id: msg.id,
+            role: msg.role,
+            content: content,
+            timestamp: msg.created_at,
+            thinking: thinking,
+            files: msg.files || [],
+          }
+        })
+        
+        // Update messages state with real data
+        setMessages(formattedMessages)
       }
-      setTimeout(() => {
-        // Refresh chat messages
-        refetchChat().then(() => {
-          console.log('✅ Chat messages refreshed after sending');
-        }).catch(err => {
-          console.error('❌ Failed to refresh messages:', err);
+      
+      // Invalidate and refetch versions
+      if (app?.id && app?.chat_id) {
+        queryClient.invalidateQueries({
+          queryKey: ["app-versions", app.id, app.chat_id]
         });
-        
-        // Also invalidate and refetch versions to update the dropdown
-        if (app?.id && app?.chat_id) {
-          
-          queryClient.invalidateQueries({
-            queryKey: ["app-versions", app.id, app.chat_id]
-          }).then(() => {
-            console.log('✅ Versions cache invalidated and refetched');
-          }).catch(err => {
-            console.error('❌ Failed to refresh versions:', err);
-          });
-        }
-      }, 1000); // Small delay to ensure V0 has processed the response
+      }
       
       setMessage("")
       setUploadedFiles([])
       setShowFileUpload(false)
     },
     onError: (error: unknown) => {
+      // Remove optimistic messages on error
+      setMessages(prev => prev.filter(msg => !msg.id.startsWith('temp-')))
       toast.error(`Failed to send message: ${error instanceof Error ? error.message : "Unknown error"}`)
     },
   })
@@ -740,7 +769,27 @@ ${app.active_fields_text || ''}
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
     if (message.trim() && !sendMessageMutation.isPending) {
-      sendMessageMutation.mutate(message)
+      // Create optimistic user message
+      const optimisticUserMessage: Message = {
+        id: `temp-user-${Date.now()}`,
+        role: "user",
+        content: message.trim(),
+        timestamp: new Date().toISOString(),
+      }
+
+      // Create optimistic assistant message with building placeholder
+      const optimisticAssistantMessage: Message = {
+        id: `temp-assistant-${Date.now()}`,
+        role: "assistant", 
+        content: "BUILDING_PLACEHOLDER",
+        timestamp: new Date().toISOString(),
+      }
+
+      // Add both messages optimistically
+      setMessages(prev => [...prev, optimisticUserMessage, optimisticAssistantMessage])
+
+      // Send the message
+      sendMessageMutation.mutate(message.trim())
     }
   }
 
