@@ -1,10 +1,11 @@
-import { useRef, FormEvent } from "react"
+import { useRef, FormEvent, useState, useEffect } from "react"
 import { Sparkles } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import ReactMarkdown from "react-markdown"
 import { ThinkingSection } from "@/components/thinking-section"
 import { TypewriterEffect } from "@/components/typewriter-effect"
+import { replaceSystemPromptsWithUserPrompts, type Prompt } from "@/lib/prompts"
 
 
 interface Message {
@@ -55,6 +56,24 @@ export const ChatPanel = ({
   sendMessageMutation,
   messagesEndRef,
 }: ChatPanelProps) => {
+  const [prompts, setPrompts] = useState<Prompt[]>([])
+
+  // Fetch prompts for content replacement
+  useEffect(() => {
+    const fetchPrompts = async () => {
+      try {
+        const response = await fetch('/api/prompts')
+        const data = await response.json()
+        if (data.success && data.prompts) {
+          setPrompts(data.prompts)
+        }
+      } catch (error) {
+        console.error('Failed to fetch prompts:', error)
+      }
+    }
+    fetchPrompts()
+  }, [])
+
   if (isFullscreen) {
     return null
   }
@@ -137,6 +156,11 @@ export const ChatPanel = ({
                                 // Handle legacy </CodeProject> split logic
                                 if (cleanContent.includes("</CodeProject>")) {
                                   cleanContent = cleanContent.split("</CodeProject>")[1];
+                                }
+                                
+                                // Replace system prompts with user-friendly descriptions
+                                if (prompts.length > 0) {
+                                  cleanContent = replaceSystemPromptsWithUserPrompts(cleanContent, prompts);
                                 }
                                 
                                 return cleanContent.trim();

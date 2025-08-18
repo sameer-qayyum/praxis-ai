@@ -6,6 +6,7 @@ import { notFound, useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/components/ui/use-toast"
+import { getRequiredPromptTypes, buildSystemPrompts, type AppRequirements } from "@/lib/prompts"
 
 
 // Import our custom components
@@ -275,147 +276,46 @@ ${app.active_fields_text || ''}
 
         SHEET NAME: ${app.name || 'Sheet1'}`;
         
-        // Add API instructions based on template requirements
+        // Fetch and build system prompts from database
         const apiAccess = templateData?.sheet_api_access || 'write_only';
-        
-        // Add write access instructions if needed
-        if (apiAccess === 'write_only' || apiAccess === 'read_write') {
-          promptBase += `
+        console.log('🔧 App Requirements:', {
+          requiresAuthentication: app.requires_authentication || false,
+          apiAccess,
+          appId: app.id,
+          hasPathSecret: !!app.path_secret
+        });
 
+        const requiredPromptTypes = getRequiredPromptTypes(
+          app.requires_authentication || false,
+          apiAccess
+        );
+        console.log('📋 Required Prompt Types:', requiredPromptTypes);
 
-        SECURE FORM SUBMISSION API:
+        // Fetch prompts from database
+        const promptsResponse = await fetch(`/api/prompts?types=${requiredPromptTypes.join(',')}`);
+        const promptsData = await promptsResponse.json();
+        console.log('🗄️ Fetched Prompts:', promptsData.prompts?.map((p: any) => ({ type: p.type, short_code: p.short_code })));
 
-        To submit form data to the Google Sheet, use this secure endpoint:
+        if (promptsData.success && promptsData.prompts) {
+          const requirements: AppRequirements = {
+            requiresAuthentication: app.requires_authentication || false,
+            apiAccess: apiAccess as 'read_only' | 'write_only' | 'read_write',
+            siteUrl: process.env.NEXT_PUBLIC_SITE_URL || '',
+            appId: app.id,
+            pathSecret: app.path_secret || ''
+          };
 
-        POST ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/submit`;
+          const systemPrompts = buildSystemPrompts(promptsData.prompts, requirements);
+          console.log('🔗 Built System Prompts Length:', systemPrompts.length);
+          console.log('🔗 System Prompts Preview:', systemPrompts.substring(0, 500) + '...');
+          
+          promptBase += systemPrompts;
+          console.log('📝 Final Prompt Base Length:', promptBase.length);
+        } else {
+          console.warn('⚠️ Failed to fetch prompts, using fallback');
+          // Fallback to basic instruction if database prompts fail
+          promptBase += `\n\nWhen interacting with the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null when writing).`;
         }
-        
-        // Add read access instructions if needed
-        if (apiAccess === 'read_only' || apiAccess === 'read_write') {
-          promptBase += `
-
-
-        SECURE DATA RETRIEVAL API:
-
-        To read data from the Google Sheet, use this secure endpoint:
-
-        GET ${process.env.NEXT_PUBLIC_SITE_URL}/api/public/forms/${app.id}/${app.path_secret}/data
-
-
-        This endpoint returns the sheet data with the following structure:
-        
-        {
-          headers: string[],          // Array of column headers
-          rows: Array<object>,        // Array of row objects with headers as keys
-          totalRows: number,          // Total number of rows in sheet
-          filteredRows?: number,     // Number of rows after filtering (if filtered)
-          page: number,              // Current page number
-          pageSize: number,          // Number of rows per page
-          totalPages: number         // Total number of pages
-        }
-        
-        Example: To sort data client-side, use: response.rows.sort((a, b) => {...})
-        
-        You can filter rows by adding query parameters that match column names, e.g. ?filter[name]=John&filter[status]=active
-        
-        Pagination is supported via ?page=2&pageSize=50 parameters (default page size is 50, max is 1000)
-        
-        Sorting is supported via ?sort=columnName:asc or ?sort=columnName:desc
-        
-        Rate limits apply (100 requests per hour per app).`;
-        }
-        
-        // Add authentication instructions if required
-        if (app.requires_authentication) {
-          promptBase += `
-
-
-        AUTHENTICATION REQUIREMENTS:
-
-        This app requires users to be authenticated before accessing content. Implement authentication as follows:
-
-        1. Authentication Check API:
-
-        GET ${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/check
-
-        Include credentials in the request:
-        - fetch(..., { credentials: 'include' })
-        - This ensures cookies are sent with the request
-
-        2. API Response Format:
-
-        Success Response (200 OK):
-        {
-          "authenticated": true,
-          "authorized": true,
-          "user": {
-            "id": "user-uuid",
-            "email": "user@example.com"
-          },
-          "permission": "admin" // or "editor", "viewer"
-        }
-
-        Unauthenticated Response (401 Unauthorized):
-        {
-          "authenticated": false,
-          "redirectUrl": "${process.env.NEXT_PUBLIC_SITE_URL}/sign-in"
-        }
-
-        Unauthorized Response (403 Forbidden):
-        {
-          "authenticated": true,
-          "authorized": false,
-          "message": "You do not have permission to access this app"
-        }
-
-        3. Implementation Requirements:
-
-        - Check authentication on initial app load
-        - For unauthenticated users, redirect to the login URL from the response
-        - For authenticated but unauthorized users, display an appropriate access denied message
-        - Store user info in app state for displaying user-specific content
-        - Permission level can be used to show/hide features based on user role
-
-        4. Example Authentication Check Implementation:
-
-        Example code:
-        async function checkAuth() {
-          try {
-            const response = await fetch('${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/check', {
-              credentials: 'include'
-            });
-            const data = await response.json();
-            
-            if (!data.authenticated) {
-              // User not authenticated, redirect to login
-              window.location.href = data.redirectUrl;
-              return null;
-            }
-            
-            if (!data.authorized) {
-              // User authenticated but not authorized
-              // Display access denied message to user
-              displayAccessDeniedMessage(data.message);
-              return null;
-            }
-            
-            // User is authenticated and authorized
-            return data.user;
-          } catch (error) {
-            console.error('Authentication check failed:', error);
-            // Show error message
-            return null;
-          }
-        }
-
-        Call this function when the app loads and before accessing protected resources.`;
-        }
-        
-        // Add final instructions about column handling
-        promptBase += `
-
-
-        When interacting with the sheet, ensure all columns are maintained in their original order, even inactive ones (set inactive values to empty string or null when writing).`;
         
         // Get current user ID
         const { data: userData } = await supabase.auth.getUser()
@@ -846,7 +746,35 @@ ${app.active_fields_text || ''}
           const activeNames = columns.filter((c: any) => c?.active === true).map((c: any) => c?.name).filter(Boolean);
           const activeFieldsText = activeNames.join(', ');
           
-          const prompt = `The Google Sheet structure has been updated. Please update the app to follow the new structure.\n\nACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText || ''}\n\nCOMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n\nThis is the complete structure of the Google Sheet with all fields in their original order. For each field:\n\n- id: Unique identifier for the column\n\n- name: Column name as shown in the sheet\n\n- type: Data type (Text, Number, Date, etc.)\n\n- active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n\n- options: For fields that have predefined options (like dropdowns)\n\n- description: Additional information about the field\n\n- originalIndex: The position of the column in the sheet (0-based)\n\nALL COLUMNS MUST BE MAINTAINED IN THE SHEET STRUCTURE, even inactive ones. For inactive fields, the generated app should just keep them blank when writing back to the sheet.\n\n${fieldsMetadataJson || ''}`;
+          // Fetch the sheet update prompt from the database
+          const promptsResponse = await fetch(`/api/prompts?types=sheet_update`);
+          const promptsData = await promptsResponse.json();
+          
+          let prompt = '';
+          if (promptsData.success && promptsData.prompts && promptsData.prompts.length > 0) {
+            // Use buildSystemPrompts for consistency with the rest of the app
+            const requirements: AppRequirements = {
+              requiresAuthentication: false,
+              apiAccess: 'read_write',
+              siteUrl: process.env.NEXT_PUBLIC_SITE_URL || '',
+              appId: app.id,
+              pathSecret: app.path_secret || ''
+            };
+            
+            // Process the prompt with dynamic data replacement
+            const processedPrompts = promptsData.prompts.map((p: any) => ({
+              ...p,
+              system_prompt: p.system_prompt
+                .replace('${activeFieldsText}', activeFieldsText || '')
+                .replace('${fieldsMetadataJson}', fieldsMetadataJson || '')
+            }));
+            
+            prompt = buildSystemPrompts(processedPrompts, requirements);
+          } else {
+            // Fallback to hardcoded prompt if database fetch fails
+            console.warn('Failed to fetch sheet_update prompt, using fallback');
+            prompt = `The Google Sheet structure has been updated. Please update the app to follow the new structure.\n\nACTIVE FIELDS (TO BE DISPLAYED IN THE UI):\n${activeFieldsText || ''}\n\nCOMPLETE SHEET STRUCTURE (INCLUDING ALL FIELDS):\n\nThis is the complete structure of the Google Sheet with all fields in their original order. For each field:\n\n- id: Unique identifier for the column\n\n- name: Column name as shown in the sheet\n\n- type: Data type (Text, Number, Date, etc.)\n\n- active: If true, this field should be used in the UI and API. If false, maintain the field in the sheet structure but don't display it.\n\n- options: For fields that have predefined options (like dropdowns)\n\n- description: Additional information about the field\n\n- originalIndex: The position of the column in the sheet (0-based)\n\nALL COLUMNS MUST BE MAINTAINED IN THE SHEET STRUCTURE, even inactive ones. For inactive fields, the generated app should just keep them blank when writing back to the sheet.\n\n${fieldsMetadataJson || ''}`;
+          }
           
           // Directly call the sendMessageMutation with the prompt
           // This ensures the message is actually sent without relying on state updates

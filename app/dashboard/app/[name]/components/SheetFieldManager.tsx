@@ -582,12 +582,6 @@ export const SheetFieldManager: React.FC<SheetFieldManagerProps> = ({
         const result = await checkSheetColumnChanges(currentSheetId);
         try {
           console.group('[FieldsUI][handleRefreshClick] Sync Result');
-          console.log('sheetId:', currentSheetId);
-          console.log('hasChanges:', result?.hasChanges);
-          console.log('savedColumns:', result?.savedColumns?.map((c: any, i: number) => ({ i, name: c?.name, originalIndex: c?.originalIndex })));
-          console.log('currentColumns:', result?.currentColumns?.map((c: any, i: number) => ({ i, name: c?.name })));
-          console.log('changes:', result?.changes);
-          console.log('mergedColumns:', result?.mergedColumns?.map((c: any, i: number) => ({ i, name: c?.name, isRemoved: (c as any)?.isRemoved })));
           console.groupEnd();
         } catch {}
         setSyncResult(result);
