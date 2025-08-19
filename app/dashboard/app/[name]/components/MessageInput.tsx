@@ -108,6 +108,8 @@ export const MessageInput = ({
     if (userPermission === 'admin' || userPermission === 'editor') {
       // User has permission, proceed with normal send
       handleSendMessage(e)
+      // Clear message after sending for better UX
+      setTimeout(() => setMessage(""), 0)
     } else {
       // User doesn't have permission, show dialog
       setShowPermissionDialog(true)
