@@ -109,32 +109,82 @@ export function UserPermissionsDialog({ isOpen, onClose, appId, currentUserId }:
   const { data: permissions, isLoading: isLoadingPermissions } = useQuery({
     queryKey: ["app-permissions", appId, currentUserId],
     queryFn: async () => {
-      // Join app_permissions with profiles to get user details including email
-      const { data, error } = await supabase
+      
+      // First, get app permissions without join
+      const { data: permissionsData, error: permissionsError } = await supabase
         .from("app_permissions")
-        .select(`
-          id, app_id, user_id, permission_level, created_at, updated_at, created_by,
-          profiles!app_permissions_user_id_fkey(id, full_name, avatar_url, email)
-        `)
+        .select("id, app_id, user_id, permission_level, created_at, updated_at, created_by")
         .eq("app_id", appId)
-        .eq("created_by", currentUserId) // Only show permissions created by current user
 
-      if (error) throw new Error(error.message)
+      console.log('📊 [PERMISSIONS] Permissions query result:', { 
+        permissionsData, 
+        permissionsError, 
+        dataLength: permissionsData?.length || 0,
+        appId 
+      })
 
-      // If no permissions, return empty array
-      if (data.length === 0) return []
+      if (permissionsError) {
+        console.error('❌ [PERMISSIONS] Permissions query error:', permissionsError)
+        throw new Error(permissionsError.message)
+      }
 
-      // Combine the data - now email comes directly from profiles
-      const permissionsWithUserDetails = data.map((permission: any) => {
+      if (!permissionsData || permissionsData.length === 0) {
+        console.warn('⚠️ [PERMISSIONS] No permissions found for app:', appId)
+        return []
+      }
+
+      // Get unique user IDs
+      const userIds = [...new Set(permissionsData.map(p => p.user_id))]
+      console.log('👥 [PERMISSIONS] User IDs to fetch:', userIds)
+
+      // Fetch profiles separately
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url, email")
+        .in("id", userIds)
+
+      console.log('👤 [PERMISSIONS] Profiles query result:', { 
+        profilesData, 
+        profilesError, 
+        profilesCount: profilesData?.length || 0 
+      })
+
+      if (profilesError) {
+        console.error('❌ [PERMISSIONS] Profiles query error:', profilesError)
+        // Continue without profiles data rather than failing
+      }
+
+      // Manually join the data
+      const permissionsWithUserDetails = permissionsData.map((permission: any) => {
+        const profile = profilesData?.find(p => p.id === permission.user_id)
+        
+        console.log('👤 [PERMISSIONS] Processing permission:', {
+          id: permission.id,
+          user_id: permission.user_id,
+          permission_level: permission.permission_level,
+          created_by: permission.created_by,
+          profile: profile
+        })
+        
         return {
           ...permission,
           users: {
             id: permission.user_id,
-            email: permission.profiles?.email || "",
-            full_name: permission.profiles?.full_name,
-            avatar_url: permission.profiles?.avatar_url,
+            email: profile?.email || "Unknown",
+            full_name: profile?.full_name || "",
+            avatar_url: profile?.avatar_url || "",
           },
         }
+      })
+
+      console.log('✅ [PERMISSIONS] Final processed permissions:', {
+        count: permissionsWithUserDetails.length,
+        permissions: permissionsWithUserDetails.map(p => ({
+          id: p.id,
+          user_id: p.user_id,
+          email: p.users.email,
+          permission_level: p.permission_level
+        }))
       })
 
       return permissionsWithUserDetails as (AppPermission & { users: User })[]
@@ -150,7 +200,7 @@ export function UserPermissionsDialog({ isOpen, onClose, appId, currentUserId }:
         .from("app_invites")
         .select("id, app_id, invited_email, permission_level, created_at, invitation_token")
         .eq("app_id", appId)
-        .eq("created_by", currentUserId)
+        .eq("created_by", currentUserId) // Only show invitations created by current user
         .is("accepted_at", null) // Only show pending invitations
 
       if (error) throw new Error(error.message)
@@ -172,7 +222,6 @@ export function UserPermissionsDialog({ isOpen, onClose, appId, currentUserId }:
         .from("app_permissions")
         .select("user_id")
         .eq("created_by", currentUserId)
-        .neq("user_id", currentUserId)
 
       if (permError) {
         console.error("Error fetching user permissions:", permError)

@@ -29,12 +29,25 @@ export function AppPermissionsButton({
   const { data, isLoading } = useQuery({
     queryKey: ["app-permissions-count", appId],
     queryFn: async () => {
+      console.log('🔢 [PERMISSIONS BUTTON] Fetching permissions count for app:', appId)
+      
       const { count, error } = await supabase
         .from("app_permissions")
         .select("*", { count: "exact", head: true })
         .eq("app_id", appId)
 
-      if (error) throw new Error(error.message)
+      console.log('📊 [PERMISSIONS BUTTON] Count query result:', { 
+        count, 
+        error, 
+        appId 
+      })
+
+      if (error) {
+        console.error('❌ [PERMISSIONS BUTTON] Count query error:', error)
+        throw new Error(error.message)
+      }
+      
+      console.log('✅ [PERMISSIONS BUTTON] Final count:', count || 0)
       return count || 0
     },
   })
