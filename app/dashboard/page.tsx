@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TemplateButton } from "@/components/dashboard/template/TemplateButton"
 import {
@@ -256,9 +257,10 @@ export default async function Dashboard() {
               <div className="space-y-6">
                 <div className="text-left">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Describe your app</label>
-                  <Input
+                  <Textarea
                     placeholder="e.g., 'I need a tool that tracks customer orders and sends automated emails...'"
-                    className="text-left h-12"
+                    className="text-left min-h-[120px] resize-none bg-white"
+                    rows={5}
                   />
                 </div>
                 <div className="flex gap-4">
