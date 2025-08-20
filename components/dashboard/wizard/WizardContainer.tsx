@@ -17,10 +17,13 @@ import crypto from "crypto"
 interface WizardContainerProps {
   title: string
   description: string
-  templateId: string
+  templateId?: string  // Make optional
+  customPrompt?: string  // Add custom prompt
+  customPromptId?: string | null  // Add custom prompt ID for tracking
+  isCustomApp?: boolean  // Flag for custom vs template
 }
 
-export function WizardContainer({ title, description, templateId }: WizardContainerProps) {
+export function WizardContainer({ title, description, templateId, customPrompt, customPromptId, isCustomApp }: WizardContainerProps) {
   const [currentStep, setCurrentStep] = useState(1)
   const [initialCheckComplete, setInitialCheckComplete] = useState(false)
   const [selectedFieldsCount, setSelectedFieldsCount] = useState(0)
@@ -51,8 +54,13 @@ export function WizardContainer({ title, description, templateId }: WizardContai
     window.scrollTo(0, 0)
   }, [currentStep])
 
-  const handleFinish = async () => {    
+  const handleFinish = async () => {
+    
     if (!selectedSheet?.id || selectedFieldsCount === 0) {
+      console.warn('⚠️ [WIZARD] Validation failed:', {
+        hasSheet: !!selectedSheet?.id,
+        fieldsCount: selectedFieldsCount
+      })
       toast.error('Please select a sheet and at least one field');
       return;
     }
@@ -160,22 +168,24 @@ export function WizardContainer({ title, description, templateId }: WizardContai
       const pathSecret = crypto.randomBytes(16).toString('hex');
       
       // 4. Create a minimal app record in the database (without chat_id yet)
+      const appInsertData = {
+        name: appName, 
+        template_id: isCustomApp ? null : templateData?.id, // null for custom apps
+        created_by: userId,
+        status: 'pending', // Mark as pending generation
+        // Store the sheet name and specific prompt details in metadata columns
+        google_sheet: connectionData.id,
+        updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        number_of_messages: 1,
+        path_secret: pathSecret, // Set the generated path_secret
+        data_model: columnsMetadata,
+        requires_authentication: requiresAuthentication // Set the authentication requirement
+      }
+      
       const { data: appData, error: appError } = await supabase
         .from('apps')
-        .insert({
-          name: appName, 
-          template_id: templateData?.id,
-          created_by: userId,
-          status: 'pending', // Mark as pending generation
-          // Store the sheet name and specific prompt details in metadata columns
-          google_sheet: connectionData.id,
-          updated_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          number_of_messages: 1,
-          path_secret: pathSecret, // Set the generated path_secret
-          data_model: columnsMetadata,
-          requires_authentication: requiresAuthentication // Set the authentication requirement
-        })
+        .insert(appInsertData)
         .select('id, path_secret') // Get the created app's ID and path_secret
         .single();
 
@@ -193,6 +203,117 @@ export function WizardContainer({ title, description, templateId }: WizardContai
 
       if (appError) {
         throw appError;
+      }
+
+      // 6. Update custom prompt with app_id if this is a custom app
+      if (isCustomApp && customPromptId && appData?.id) {
+        
+        // First, verify the prompt exists before updating
+        const { data: existingPrompt, error: fetchError } = await supabase
+          .from('user_custom_prompts')
+          .select('id, user_id, app_id, prompt')
+          .eq('id', customPromptId)
+          .single();
+          
+        // Also check if prompt exists with different user_id
+        const { data: allMatchingPrompts, error: allFetchError } = await supabase
+          .from('user_custom_prompts')
+          .select('id, user_id, app_id')
+          .eq('id', customPromptId);
+          
+        if (fetchError) {
+          console.error('❌ [WIZARD] Error fetching existing prompt for verification:', fetchError);
+        } else {
+          console.log('📋 [WIZARD] Found existing prompt:', {
+            id: existingPrompt.id,
+            userId: existingPrompt.user_id,
+            currentUserId: userId,
+            userIdMatch: existingPrompt.user_id === userId,
+            currentAppId: existingPrompt.app_id,
+            promptLength: existingPrompt.prompt?.length || 0
+          });
+        }
+        
+        if (allFetchError) {
+          console.error('❌ [WIZARD] Error fetching all matching prompts:', allFetchError);
+        } else {
+          console.log('🔍 [WIZARD] All prompts with this ID:', allMatchingPrompts);
+        }
+        
+        const { data: updateResult, error: promptError } = await supabase
+          .from('user_custom_prompts')
+          .update({ app_id: appData.id })
+          .eq('id', customPromptId)
+          .select('id, app_id'); // Return the updated data
+          
+        if (promptError) {
+          console.error('❌ [WIZARD] Error updating custom prompt with app_id:', {
+            error: promptError,
+            code: promptError.code,
+            message: promptError.message,
+            details: promptError.details,
+            hint: promptError.hint
+          });
+          
+          // Store error info in localStorage
+          localStorage.setItem('wizard_debug_error', JSON.stringify({
+            timestamp: new Date().toISOString(),
+            promptId: customPromptId,
+            appId: appData.id,
+            error: promptError,
+            step: 'update'
+          }));
+        } else {
+          console.log('✅ [WIZARD] Custom prompt updated with app_id successfully:', {
+            updateResult,
+            updatedRows: updateResult?.length || 0
+          });
+          
+          // Store debug info in localStorage for persistence across page navigation
+          localStorage.setItem('wizard_debug', JSON.stringify({
+            timestamp: new Date().toISOString(),
+            promptId: customPromptId,
+            appId: appData.id,
+            updateSuccess: true,
+            updateResult: updateResult
+          }));
+          
+          // Verify the update worked
+          const { data: verifyPrompt, error: verifyError } = await supabase
+            .from('user_custom_prompts')
+            .select('id, app_id')
+            .eq('id', customPromptId)
+            .single();
+            
+          if (verifyError) {
+            console.error('❌ [WIZARD] Error verifying prompt update:', verifyError);
+            localStorage.setItem('wizard_debug_error', JSON.stringify({
+              timestamp: new Date().toISOString(),
+              error: verifyError,
+              step: 'verification'
+            }));
+          } else {
+            console.log('🔍 [WIZARD] Verification - prompt after update:', {
+              id: verifyPrompt.id,
+              appId: verifyPrompt.app_id,
+              updateSuccessful: verifyPrompt.app_id === appData.id
+            });
+            
+            // Update localStorage with verification result
+            const debugInfo = JSON.parse(localStorage.getItem('wizard_debug') || '{}');
+            debugInfo.verificationSuccess = verifyPrompt.app_id === appData.id;
+            debugInfo.finalAppId = verifyPrompt.app_id;
+            localStorage.setItem('wizard_debug', JSON.stringify(debugInfo));
+          }
+        }
+      } else {
+        console.log('⚠️ [WIZARD] Skipping custom prompt update - missing requirements:', {
+          isCustomApp,
+          hasCustomPromptId: !!customPromptId,
+          hasAppDataId: !!appData?.id,
+          customPromptId,
+          appDataId: appData?.id
+        });
       }
 
       // Clear the loading toast and show success

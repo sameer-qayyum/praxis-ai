@@ -161,29 +161,46 @@ const AppPage = () => {
     }
   }, [permissionCheckComplete, userHasPermission, router, toast])
 
-  // Fetch template data
+  // Fetch app prompt data (template or custom)
   const {
-    data: templateData,
-    isLoading: isLoadingTemplate,
+    data: appPromptData,
+    isLoading: isLoadingPromptData,
   } = useQuery({
-    queryKey: ["template", app?.template_id],
+    queryKey: ["app-prompt-data", app?.id, app?.template_id],
     queryFn: async () => {
-      if (!app?.template_id) return null
+      if (!app) return null
 
-      const { data, error } = await supabase
-        .from("templates")
-        .select("user_prompt")
-        .eq("id", app.template_id)
-        .single()
+      if (app.template_id) {
+        // Template-based app
+        const { data, error } = await supabase
+          .from("templates")
+          .select("user_prompt")
+          .eq("id", app.template_id)
+          .single()
 
-      if (error) {
-        console.error("Error fetching template:", error)
-        return null
+        if (error) {
+          console.error("Error fetching template:", error)
+          return null
+        }
+
+        return { type: 'template', data }
+      } else {
+        // Custom app - fetch custom prompt
+        const { data, error } = await supabase
+          .from('user_custom_prompts')
+          .select('prompt, created_at')
+          .eq('app_id', app.id)
+          .single()
+
+        if (error) {
+          console.error("Error fetching custom prompt:", error)
+          return null
+        }
+
+        return { type: 'custom', data }
       }
-
-      return data
     },
-    enabled: !!app?.template_id,
+    enabled: !!app?.id,
   })
 
   // Check if app needs generation
@@ -194,6 +211,21 @@ const AppPage = () => {
   // Log app data on first load and trigger chat message fetch if we have a chat_id
   useEffect(() => {
     if (app?.id) {
+      // Check for wizard debug info from localStorage
+      const wizardDebug = localStorage.getItem('wizard_debug');
+      const wizardError = localStorage.getItem('wizard_debug_error');
+      
+      if (wizardDebug) {
+        // Clean up after logging
+        localStorage.removeItem('wizard_debug');
+      }
+      
+      if (wizardError) {
+        console.error('❌ [APP PAGE] Wizard error info found:', JSON.parse(wizardError));
+        // Clean up after logging
+        localStorage.removeItem('wizard_debug_error');
+      }
+      
       // If we already have a chat_id, explicitly trigger chat message fetch
       if (app.chat_id) {
         // The query is set to enabled: !!app?.chat_id, so it will auto-fetch
@@ -217,29 +249,68 @@ const AppPage = () => {
         return { success: true, message: 'App already has chat_id, no generation needed' };
       }
       try {
-        // 3. Get the template's base prompt and API access requirements
-        const { data: templateData, error: templateError } = await supabase
-          .from('templates')
-          .select('user_prompt, sheet_api_access, base_prompt')
-          .eq('id', app.template_id)
-          .single();
+        console.log('🔍 [APP GENERATION] Checking app type:', {
+          appId: app.id,
+          hasTemplateId: !!app.template_id,
+          templateId: app.template_id,
+          appType: app.template_id ? 'TEMPLATE' : 'CUSTOM'
+        })
+
+        // 3. Get template data only if this is a template-based app
+        let templateData = null
+        if (app.template_id) {
+          const { data, error: templateError } = await supabase
+            .from('templates')
+            .select('user_prompt, sheet_api_access, base_prompt')
+            .eq('id', app.template_id)
+            .single();
+          
+          if (templateError) {
+            console.error('❌ [APP GENERATION] Template fetch error:', templateError)
+            throw new Error(`Failed to fetch template: ${templateError.message}`)
+          }
+          templateData = data
+        } else {
+          console.log('🎨 [APP GENERATION] Custom app detected - no template needed')
+        }
+
+        // Get sheet data (required for both template and custom apps)
         const { data: sheetData, error: sheetError } = await supabase
-          .from("google_sheets_connections") // Note: Fixed table name from google_sheet_connections to google_sheets_connections
+          .from("google_sheets_connections")
           .select("*")
           .eq("id", app.google_sheet)
           .single()
         
         if (!sheetData || sheetError) {
-          console.error('Failed to fetch sheet data:', { error: sheetError, sheetId: app.google_sheet });
+          console.error('❌ [APP GENERATION] Failed to fetch sheet data:', { error: sheetError, sheetId: app.google_sheet });
           throw new Error(`Sheet data not found for ID: ${app.google_sheet}`);
         }
-        
-        if (templateError) {
-          throw new Error(`Failed to fetch template: ${templateError.message}`)
-        }
 
-        // Create the base prompt using the template's user_prompt
-        const basePrompt = templateData?.base_prompt || 'Create a web application based on the Google Sheet structure provided.'
+        // Create the base prompt - different logic for template vs custom apps
+        let basePrompt
+        if (app.template_id && templateData) {
+          // Template-based app
+          basePrompt = templateData.base_prompt || 'Create a web application based on the Google Sheet structure provided.'
+         
+        } else {
+          // Custom app - retrieve the custom prompt for this specific app
+          const { data: customPrompts, error: customPromptError } = await supabase
+            .from('user_custom_prompts')
+            .select('prompt, created_at')
+            .eq('app_id', app.id)
+            .single()
+          
+          if (customPromptError) {
+            console.warn('⚠️ [APP GENERATION] Could not fetch custom prompt:', customPromptError)
+            basePrompt = 'Create a custom web application based on the Google Sheet structure provided and the user requirements.'
+          } else if (customPrompts?.prompt) {
+            const customPrompt = customPrompts.prompt
+            basePrompt = `USER REQUIREMENT: ${customPrompt}\n\nCreate a web application that fulfills this requirement using the provided Google Sheet data structure.`
+          } else {
+            console.warn('⚠️ [APP GENERATION] No custom prompts found for user, using default')
+            basePrompt = 'Create a custom web application based on the Google Sheet structure provided and the user requirements.'
+          }
+        }
         // Create a detailed metadata description for v0
         const fieldsMetadataJson = JSON.stringify(app?.data_model, null, 2);
         
@@ -277,24 +348,19 @@ ${app.active_fields_text || ''}
         SHEET NAME: ${app.name || 'Sheet1'}`;
         
         // Fetch and build system prompts from database
-        const apiAccess = templateData?.sheet_api_access || 'write_only';
-        console.log('🔧 App Requirements:', {
-          requiresAuthentication: app.requires_authentication || false,
-          apiAccess,
-          appId: app.id,
-          hasPathSecret: !!app.path_secret
-        });
+        const apiAccess = app.template_id 
+          ? (templateData?.sheet_api_access || 'write_only')
+          : 'read_write'; // Custom apps get full read_write access
 
         const requiredPromptTypes = getRequiredPromptTypes(
           app.requires_authentication || false,
           apiAccess
         );
-        console.log('📋 Required Prompt Types:', requiredPromptTypes);
+      
 
         // Fetch prompts from database
         const promptsResponse = await fetch(`/api/prompts?types=${requiredPromptTypes.join(',')}`);
         const promptsData = await promptsResponse.json();
-        console.log('🗄️ Fetched Prompts:', promptsData.prompts?.map((p: any) => ({ type: p.type, short_code: p.short_code })));
 
         if (promptsData.success && promptsData.prompts) {
           const requirements: AppRequirements = {
@@ -306,11 +372,8 @@ ${app.active_fields_text || ''}
           };
 
           const systemPrompts = buildSystemPrompts(promptsData.prompts, requirements);
-          console.log('🔗 Built System Prompts Length:', systemPrompts.length);
-          console.log('🔗 System Prompts Preview:', systemPrompts.substring(0, 500) + '...');
           
           promptBase += systemPrompts;
-          console.log('📝 Final Prompt Base Length:', promptBase.length);
         } else {
           console.warn('⚠️ Failed to fetch prompts, using fallback');
           // Fallback to basic instruction if database prompts fail
@@ -524,8 +587,8 @@ ${app.active_fields_text || ''}
             content = content.trim();
           }
           
-          // Replace first user message content with template user_prompt if available
-          const userPrompt = templateData?.user_prompt
+          // Replace first user message content with template user_prompt if available (only for template apps)
+          const userPrompt = (appPromptData?.type === 'template' && appPromptData.data) ? (appPromptData.data as any).user_prompt : null
           if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
             content = userPrompt
           }
@@ -639,8 +702,8 @@ ${app.active_fields_text || ''}
           }
         }
         
-        // Replace first user message content with template user_prompt if available
-        const userPrompt = templateData?.user_prompt
+        // Replace first user message content with template user_prompt if available (only for template apps)
+        const userPrompt = (appPromptData?.type === 'template' && appPromptData.data) ? (appPromptData.data as any).user_prompt : null
         if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
           content = userPrompt
         }
@@ -657,7 +720,7 @@ ${app.active_fields_text || ''}
       
       setMessages(formattedMessages)
     }
-  }, [chatData, templateData?.user_prompt])
+  }, [chatData, appPromptData])
 
   // Scroll to bottom when messages update
   useEffect(() => {

@@ -1,5 +1,9 @@
-import type React from "react"
-import { createClient } from "@/lib/supabase/server"
+"use client"
+
+import React, { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -59,15 +63,18 @@ type Template = {
   updated_at: string
 }
 
-export default async function Dashboard() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+export default function Dashboard() {
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [isCustomFlow, setIsCustomFlow] = useState(false)
+  const [templates, setTemplates] = useState<{ popularTemplates: Template[], allTemplates: Template[] }>({ popularTemplates: [], allTemplates: [] })
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
+  const supabase = createClient()
 
   // Fetch templates from the database
-  async function getTemplates() {
+  const getTemplates = async () => {
     try {
+      setLoading(true)
       const { data: popularData } = await supabase.rpc("get_popular_templates", { limit_count: 3 })
 
       // Fetch all templates sorted by category
@@ -77,21 +84,85 @@ export default async function Dashboard() {
         .order("category")
         .order("apps_count", { ascending: false })
 
-      return { popularTemplates: popularData, allTemplates: allTemplatesData }
+      setTemplates({ 
+        popularTemplates: popularData || [], 
+        allTemplates: allTemplatesData || [] 
+      })
     } catch (error) {
       console.error("Error fetching templates:", error)
-      return { popularTemplates: [], allTemplates: [] }
+      setTemplates({ popularTemplates: [], allTemplates: [] })
+    } finally {
+      setLoading(false)
     }
   }
 
-  const { popularTemplates, allTemplates } = await getTemplates()
+  // Load templates on component mount
+  useEffect(() => {
+    getTemplates()
+  }, [])
 
-  if (!popularTemplates) {
-    console.error("Error fetching popular templates")
+  // Store custom prompt in database and return the ID
+  const storeCustomPrompt = async (prompt: string): Promise<string | null> => {
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.warn('⚠️ [CUSTOM APP] No authenticated user found for storing prompt')
+        return null
+      }
+
+      const { data, error } = await supabase
+        .from('user_custom_prompts')
+        .insert({
+          user_id: user.id,
+          prompt: prompt.trim()
+        })
+        .select('id')
+        .single()
+
+      if (error) {
+        console.error('❌ [CUSTOM APP] Database error storing prompt:', error)
+        return null
+      } else {
+        console.log('✅ [CUSTOM APP] Custom prompt stored successfully with ID:', data.id)
+        return data.id
+      }
+    } catch (error) {
+      console.error('❌ [CUSTOM APP] Error storing custom prompt:', error)
+      return null
+    }
   }
-  if (!allTemplates) {
-    console.error("Error fetching all templates")
+
+  // Handle custom app creation
+  const handleCustomAppBuild = async () => {
+    
+    if (!customPrompt.trim()) {
+      console.warn('⚠️ [CUSTOM APP] Empty prompt detected, showing error')
+      toast.error('Please describe your app first')
+      return
+    }
+    
+    // Store custom prompt for analytics and get the ID
+    const customPromptId = await storeCustomPrompt(customPrompt)
+    
+    if (!customPromptId) {
+      toast.error('Failed to save your prompt. Please try again.')
+      return
+    }
+    
+    // Navigate to wizard with custom prompt ID
+    const params = new URLSearchParams({
+      custom: 'true',
+      prompt: customPrompt.trim(),
+      promptId: customPromptId
+    })
+    
+    const wizardUrl = `/dashboard/wizard?${params.toString()}`
+    
+    router.push(wizardUrl)
   }
+
+  const { popularTemplates, allTemplates } = templates
 
   return (
     <div className="p-8">
@@ -258,13 +329,19 @@ export default async function Dashboard() {
                 <div className="text-left">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Describe your app</label>
                   <Textarea
-                    placeholder="e.g., 'I need a tool that tracks customer orders and sends automated emails...'"
-                    className="text-left min-h-[120px] resize-none bg-white"
-                    rows={5}
-                  />
+  value={customPrompt}
+  onChange={(e) => setCustomPrompt(e.target.value)}
+  placeholder="e.g., 'I need a tool that tracks customer orders...'"
+  className="text-left min-h-[120px] resize-none bg-white"
+  rows={6}
+/>
                 </div>
                 <div className="flex gap-4">
-                  <Button className="flex-1 h-12">
+                  <Button 
+                    className="flex-1 h-12"
+                    onClick={handleCustomAppBuild}
+                    disabled={!customPrompt.trim()}
+                  >
                     <Plus className="h-5 w-5 mr-2" />
                     Build Custom App
                   </Button>

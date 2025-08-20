@@ -163,7 +163,8 @@ CREATE TABLE public.app_permissions (
 -- Create user_custom_prompts table to track custom prompts for template creation
 CREATE TABLE public.user_custom_prompts (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) NOT NULL,
+  app_id UUID REFERENCES public.apps(id) ON DELETE CASCADE NOT NULL,
   prompt TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -175,6 +176,7 @@ CREATE INDEX idx_app_permissions_created_by ON public.app_permissions(created_by
 
 -- Create indexes for user_custom_prompts
 CREATE INDEX idx_user_custom_prompts_user_id ON public.user_custom_prompts(user_id);
+CREATE INDEX idx_user_custom_prompts_app_id ON public.user_custom_prompts(app_id);
 CREATE INDEX idx_user_custom_prompts_created_at ON public.user_custom_prompts(created_at);
 
 -- Enable row level security
@@ -241,12 +243,30 @@ CREATE POLICY "Users can view own custom prompts"
 CREATE POLICY "Users can insert own custom prompts" 
   ON public.user_custom_prompts 
   FOR INSERT 
+  WITH CHECK (
+    auth.uid() = user_id AND 
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_id AND apps.created_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can update own custom prompts" 
+  ON public.user_custom_prompts 
+  FOR UPDATE 
+  USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can delete own custom prompts" 
   ON public.user_custom_prompts 
   FOR DELETE 
-  USING (auth.uid() = user_id);
+  USING (
+    auth.uid() = user_id AND 
+    EXISTS (
+      SELECT 1 FROM public.apps 
+      WHERE apps.id = app_id AND apps.created_by = auth.uid()
+    )
+  );
 
 -- Create app_invites table to handle invitations to apps
 CREATE TABLE public.app_invites (
