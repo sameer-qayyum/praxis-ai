@@ -702,8 +702,16 @@ ${app.active_fields_text || ''}
           }
         }
         
-        // Replace first user message content with template user_prompt if available (only for template apps)
-        const userPrompt = (appPromptData?.type === 'template' && appPromptData.data) ? (appPromptData.data as any).user_prompt : null
+        // Replace first user message content with appropriate prompt based on app type
+        let userPrompt = null
+        if (appPromptData?.type === 'template' && appPromptData.data) {
+          // Template apps: use template user_prompt
+          userPrompt = (appPromptData.data as any).user_prompt
+        } else if (appPromptData?.type === 'custom' && appPromptData.data) {
+          // Custom apps: use the original custom prompt
+          userPrompt = (appPromptData.data as any).prompt
+        }
+        
         if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
           content = userPrompt
         }
