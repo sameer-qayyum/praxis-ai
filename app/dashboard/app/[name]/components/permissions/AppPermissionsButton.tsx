@@ -36,18 +36,12 @@ export function AppPermissionsButton({
         .select("*", { count: "exact", head: true })
         .eq("app_id", appId)
 
-      console.log('📊 [PERMISSIONS BUTTON] Count query result:', { 
-        count, 
-        error, 
-        appId 
-      })
 
       if (error) {
         console.error('❌ [PERMISSIONS BUTTON] Count query error:', error)
         throw new Error(error.message)
       }
       
-      console.log('✅ [PERMISSIONS BUTTON] Final count:', count || 0)
       return count || 0
     },
   })

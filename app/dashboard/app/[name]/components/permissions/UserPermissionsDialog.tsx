@@ -116,13 +116,6 @@ export function UserPermissionsDialog({ isOpen, onClose, appId, currentUserId }:
         .select("id, app_id, user_id, permission_level, created_at, updated_at, created_by")
         .eq("app_id", appId)
 
-      console.log('📊 [PERMISSIONS] Permissions query result:', { 
-        permissionsData, 
-        permissionsError, 
-        dataLength: permissionsData?.length || 0,
-        appId 
-      })
-
       if (permissionsError) {
         console.error('❌ [PERMISSIONS] Permissions query error:', permissionsError)
         throw new Error(permissionsError.message)
@@ -158,14 +151,6 @@ export function UserPermissionsDialog({ isOpen, onClose, appId, currentUserId }:
       const permissionsWithUserDetails = permissionsData.map((permission: any) => {
         const profile = profilesData?.find(p => p.id === permission.user_id)
         
-        console.log('👤 [PERMISSIONS] Processing permission:', {
-          id: permission.id,
-          user_id: permission.user_id,
-          permission_level: permission.permission_level,
-          created_by: permission.created_by,
-          profile: profile
-        })
-        
         return {
           ...permission,
           users: {
@@ -175,16 +160,6 @@ export function UserPermissionsDialog({ isOpen, onClose, appId, currentUserId }:
             avatar_url: profile?.avatar_url || "",
           },
         }
-      })
-
-      console.log('✅ [PERMISSIONS] Final processed permissions:', {
-        count: permissionsWithUserDetails.length,
-        permissions: permissionsWithUserDetails.map(p => ({
-          id: p.id,
-          user_id: p.user_id,
-          email: p.users.email,
-          permission_level: p.permission_level
-        }))
       })
 
       return permissionsWithUserDetails as (AppPermission & { users: User })[]
