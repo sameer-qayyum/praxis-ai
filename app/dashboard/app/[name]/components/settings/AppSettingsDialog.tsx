@@ -78,7 +78,7 @@ export function AppSettingsDialog({
     // Message to send when enabling authentication
     const authEnableMessage=`
 
-
+      <ADD_AUTH>
         AUTHENTICATION REQUIREMENTS:
 
         This app requires users to be authenticated before accessing content. Implement authentication as follows:
@@ -157,12 +157,13 @@ export function AppSettingsDialog({
           }
         }
 
-        Call this function when the app loads and before accessing protected resources.`;
+        Call this function when the app loads and before accessing protected resources.
+        </ADD_AUTH>`;
     
     // Message to send when disabling authentication
     const authDisableMessage = `
 
-
+        <REMOVE_AUTH>
         AUTHENTICATION DISABLED:
 
         This app should be accessible to anyone without requiring authentication. Please update the app to:
@@ -179,7 +180,8 @@ export function AppSettingsDialog({
            are now accessible without login credentials
 
         Note: The app will still be accessible to authenticated users, but authentication
-        should not be required or enforced in any way.`;
+        should not be required or enforced in any way.
+        </REMOVE_AUTH>`;
     
     // Update the database setting
     updateAuthMutation.mutate(checked)
