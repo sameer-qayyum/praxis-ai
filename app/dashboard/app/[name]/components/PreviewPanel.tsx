@@ -161,8 +161,8 @@ export const PreviewPanel = ({
     }
   }, [versions, versions.length, setSelectedVersion]);
   return (
-    <div className={`flex flex-col bg-gray-50 dark:bg-slate-900 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col overflow-hidden">
+    <div className={`flex flex-col bg-gray-50 dark:bg-slate-900 h-full overflow-hidden min-h-0 ${isFullscreen ? 'w-full' : 'flex-1'}`}>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col overflow-hidden min-h-0">
         <div className="border-b bg-white dark:bg-slate-800 px-4 py-2 grid grid-cols-3 items-center">
           <TabsList className="grid w-[200px] grid-cols-2 justify-self-start">
             <TabsTrigger value="preview" className="text-xs">
@@ -243,7 +243,7 @@ export const PreviewPanel = ({
           </div>
         </div>
 
-        <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative">
+        <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative min-h-0">
           {isGenerating || app.status === 'pending' ? (
             <div className="h-full flex items-center justify-center">
               <div className="text-center p-4">
@@ -257,7 +257,7 @@ export const PreviewPanel = ({
               </div>
             </div>
           ) : app.preview_url ? (
-            <div className="w-full h-full flex items-center justify-center">
+            <div className="w-full h-full flex items-center justify-center overflow-hidden">
               {/* Refresh button in top-right corner */}
               <Button 
                 variant="ghost" 
@@ -270,7 +270,7 @@ export const PreviewPanel = ({
               </Button>
               {/* Responsive width container */}
               <div
-                className="h-full bg-white shadow-sm relative"
+                className="h-full bg-white shadow-sm relative overflow-hidden"
                 style={{
                   width: viewport === 'mobile' ? 375 : viewport === 'tablet' ? 768 : 1280,
                   maxWidth: '100%'

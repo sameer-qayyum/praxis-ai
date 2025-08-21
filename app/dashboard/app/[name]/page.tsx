@@ -86,11 +86,24 @@ const AppPage = () => {
   const [userHasPermission, setUserHasPermission] = useState<boolean | null>(null) // Track permission status
   const [permissionCheckComplete, setPermissionCheckComplete] = useState(false) // Track if check is complete
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const initialMessagesLoad = useRef<boolean>(true)
   const supabase = createClient()
   const { toast } = useToast()
   // Fixed layout - no longer using resizable
   // Preview viewport selection
   const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop')
+
+  // Lock body scroll so only the preview iframe can scroll
+  useEffect(() => {
+    const prevBodyOverflow = document.body.style.overflow
+    const prevHtmlOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prevBodyOverflow
+      document.documentElement.style.overflow = prevHtmlOverflow
+    }
+  }, [])
 
   // Helper to consistently format messages from API/full chat payloads
   const formatMessages = useCallback(
@@ -714,12 +727,16 @@ ${app.active_fields_text || ''}
     }
   }, [chatData, appPromptData])
 
-  // Scroll to bottom when messages update
+  // Scroll to bottom when messages update (skip on initial load and when chat is hidden)
   useEffect(() => {
-    if (messagesEndRef.current && messages.length > 0) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+    if (initialMessagesLoad.current) {
+      initialMessagesLoad.current = false
+      return
     }
-  }, [messages])
+    if (!isFullscreen && messagesEndRef.current && messages.length > 0) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" })
+    }
+  }, [messages, isFullscreen])
 
   const handleSendMessage = useCallback((e: React.FormEvent) => {
     e.preventDefault()
@@ -888,10 +905,10 @@ ${app.active_fields_text || ''}
       />
 
       {/* Main Content - flex-1 takes all remaining space */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Chat Panel - with relative positioning to contain the input */}
         <div
-          className={`border-r bg-white dark:bg-slate-900 relative ${isFullscreen ? 'hidden' : 'block'}`}
+          className={`border-r bg-white dark:bg-slate-900 relative overflow-hidden ${isFullscreen ? 'hidden' : 'block'}`}
           style={{ width: isFullscreen ? '0' : '30%', height: '100%' }}
         >
           <ChatPanel 

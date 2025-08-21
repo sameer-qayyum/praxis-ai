@@ -165,7 +165,7 @@ export const AppHeader = ({
     }
   }
   return (
-    <div className="border-b bg-white dark:bg-slate-900 px-6 py-2 flex items-center justify-between">
+    <div className="border-b bg-white dark:bg-slate-900 px-6 py-2 flex items-center justify-between flex-none">
       <div className="flex items-center gap-3">
         {isEditing ? (
           <div className="flex items-center">

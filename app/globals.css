@@ -118,4 +118,21 @@
   body.hide-dashboard-footer footer {
     display: none;
   }
+
+  /* App route: disable outer scrolling so only preview iframe scrolls */
+  body.app-route {
+    overflow: hidden !important;
+  }
+  /* Ensure scrollable containers inside dashboard don't add a second scrollbar on app routes */
+  body.app-route .dashboard-scroll-root,
+  body.app-route .dashboard-scroll-container,
+  body.app-route .dashboard-main-scroll {
+    overflow: hidden !important;
+    min-height: 0;
+  }
+  /* Remove outer margins that can cause page overflow on app routes */
+  body.app-route .dashboard-main-scroll {
+    margin: 0 !important;
+    border-radius: 0;
+  }
 }

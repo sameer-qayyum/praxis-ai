@@ -30,14 +30,14 @@ export default async function DashboardLayout({
 
   return (
     <QueryProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950 dashboard-scroll-root">
       {/* Sidebar - hidden on mobile */}
       <div className="hidden md:block h-screen bg-background">
         <DashboardSidebar />
       </div>
 
       {/* Main content */}
-      <div className="flex flex-col flex-1 h-screen overflow-y-auto">
+      <div className="flex flex-col flex-1 h-screen overflow-y-auto dashboard-scroll-container">
         {/* Top navbar */}
         <header className="sticky top-0 z-30 h-14 bg-background">
           <div className="flex h-full items-center justify-between px-4">
@@ -58,7 +58,7 @@ export default async function DashboardLayout({
         </header>
         
         {/* Main content area */}
-        <main className="flex-1 p-6 bg-white dark:bg-slate-900 m-4 rounded-lg shadow-sm overflow-y-auto">
+        <main className="flex-1 p-6 bg-white dark:bg-slate-900 m-4 rounded-lg shadow-sm overflow-y-auto dashboard-main-scroll">
           <GoogleSheetsClientProvider>
             {children}
           </GoogleSheetsClientProvider>
