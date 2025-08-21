@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue, 
 } from "@/components/ui/select"
-import { Eye, RefreshCw, History, Database } from "lucide-react"
+import { Eye, RefreshCw, History, Database, Smartphone, Tablet, Monitor } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { GoogleSheetPanel } from "./GoogleSheetPanel"
 
@@ -59,6 +59,8 @@ interface PreviewPanelProps {
   setSelectedVersion?: (version: string) => void
   handleRegenerateApp?: (saveFieldsPromise: Promise<void>) => void
   previewKey?: number // Key to force refresh when regeneration happens
+  viewport?: 'mobile' | 'tablet' | 'desktop'
+  setViewport?: (v: 'mobile' | 'tablet' | 'desktop') => void
 }
 
 export const PreviewPanel = ({
@@ -74,6 +76,8 @@ export const PreviewPanel = ({
   setSelectedVersion,
   handleRegenerateApp,
   previewKey: externalPreviewKey,
+  viewport = 'desktop',
+  setViewport,
 }: PreviewPanelProps) => {
   // Use both local state for URL changes and external key for regeneration
   const [localPreviewKey, setLocalPreviewKey] = useState(Date.now());
@@ -159,8 +163,8 @@ export const PreviewPanel = ({
   return (
     <div className={`flex flex-col bg-gray-50 dark:bg-slate-900 h-full ${isFullscreen ? 'w-full' : 'flex-1'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col overflow-hidden">
-        <div className="border-b bg-white dark:bg-slate-800 px-4 py-2 flex justify-between items-center">
-          <TabsList className="grid w-[200px] grid-cols-2">
+        <div className="border-b bg-white dark:bg-slate-800 px-4 py-2 grid grid-cols-3 items-center">
+          <TabsList className="grid w-[200px] grid-cols-2 justify-self-start">
             <TabsTrigger value="preview" className="text-xs">
               <Eye className="mr-1 h-3 w-3" />
               Preview
@@ -170,34 +174,73 @@ export const PreviewPanel = ({
               Google Sheet
             </TabsTrigger>
           </TabsList>
-          
-          {/* Version selector dropdown */}
-          {activeTab === 'preview' && versions.length > 0 ? (
-            <div className="flex items-center space-x-2">
-              <div className="text-xs text-gray-500 flex items-center">
-                <History className="mr-1 h-3 w-3" />
-               
+
+          {/* Center controls: viewport (when in preview tab) */}
+          {activeTab === 'preview' ? (
+            <div className="flex items-center gap-2 justify-self-center">
+              {/* Viewport controls */}
+              <div className="hidden sm:flex items-center bg-white dark:bg-slate-900 rounded-md border px-1 py-0.5">
+                <Button
+                  type="button"
+                  variant={viewport === 'mobile' ? 'default' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setViewport && setViewport('mobile')}
+                  title="Mobile"
+                >
+                  <Smartphone className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={viewport === 'tablet' ? 'default' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setViewport && setViewport('tablet')}
+                  title="Tablet"
+                >
+                  <Tablet className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={viewport === 'desktop' ? 'default' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setViewport && setViewport('desktop')}
+                  title="Desktop"
+                >
+                  <Monitor className="h-4 w-4" />
+                </Button>
               </div>
-              <Select 
-                value={selectedVersion} 
-                onValueChange={handleVersionChange}
-              >
-                <SelectTrigger className="h-8 w-[120px]">
-                  <SelectValue placeholder="Select version" />
-                </SelectTrigger>
-                <SelectContent>
-                  {versions.map((version: AppVersion) => (
-                    <SelectItem 
-                      key={version.version_id} 
-                      value={version.version_id}
-                    >
-                      {`Version ${version.version_number}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
-          ) : null}
+          ) : <div className="justify-self-center" />}
+          {/* Right controls: version selector on extreme right */}
+          <div className="justify-self-end">
+            {activeTab === 'preview' && versions.length > 0 ? (
+              <div className="flex items-center space-x-2">
+                <div className="text-xs text-gray-500 flex items-center">
+                  <History className="mr-1 h-3 w-3" />
+                </div>
+                <Select 
+                  value={selectedVersion} 
+                  onValueChange={handleVersionChange}
+                >
+                  <SelectTrigger className="h-8 w-[120px]">
+                    <SelectValue placeholder="Select version" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {versions.map((version: AppVersion) => (
+                      <SelectItem 
+                        key={version.version_id} 
+                        value={version.version_id}
+                      >
+                        {`Version ${version.version_number}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative">
@@ -214,7 +257,7 @@ export const PreviewPanel = ({
               </div>
             </div>
           ) : app.preview_url ? (
-            <div className="w-full h-full">
+            <div className="w-full h-full flex items-center justify-center">
               {/* Refresh button in top-right corner */}
               <Button 
                 variant="ghost" 
@@ -225,13 +268,22 @@ export const PreviewPanel = ({
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
-              <iframe
-                key={combinedPreviewKey} // Use dynamic key from state to force re-render
-                src={`${currentPreviewUrl}?timestamp=${combinedPreviewKey}`} // Use same timestamp for consistency
-                title="App Preview"
-                className="w-full h-full border-0 bg-white"
-                style={{ height: "100%", overflow: "hidden" }}
-              />
+              {/* Responsive width container */}
+              <div
+                className="h-full bg-white shadow-sm relative"
+                style={{
+                  width: viewport === 'mobile' ? 375 : viewport === 'tablet' ? 768 : 1280,
+                  maxWidth: '100%'
+                }}
+              >
+                <iframe
+                  key={combinedPreviewKey} // Use dynamic key from state to force re-render
+                  src={`${currentPreviewUrl}?timestamp=${combinedPreviewKey}`} // Use same timestamp for consistency
+                  title="App Preview"
+                  className="w-full h-full border-0 bg-white"
+                  style={{ height: "100%", overflow: "hidden" }}
+                />
+              </div>
             </div>
           ) : (
             <div className="h-full flex items-center justify-center">

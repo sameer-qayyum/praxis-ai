@@ -89,6 +89,8 @@ const AppPage = () => {
   const supabase = createClient()
   const { toast } = useToast()
   // Fixed layout - no longer using resizable
+  // Preview viewport selection
+  const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop')
 
   // Helper to consistently format messages from API/full chat payloads
   const formatMessages = useCallback(
@@ -927,6 +929,8 @@ ${app.active_fields_text || ''}
           setSelectedVersion={setSelectedVersion}
           handleRegenerateApp={handleRegenerateApp}
           previewKey={previewKey} // Pass previewKey to force refresh
+          viewport={viewport}
+          setViewport={setViewport}
         />
       </div>
 
