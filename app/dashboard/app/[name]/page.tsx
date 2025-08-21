@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { notFound, useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -57,19 +57,29 @@ interface Message {
   }>
 }
 
+// Narrow types used in this file to reduce reliance on any
+type UploadedFile = {
+  name?: string
+  meta?: { file?: string; lang?: string }
+  source?: string
+  content?: string
+}
+
+type AppPromptTemplate = { type: 'template' | 'custom'; data: Record<string, any> } | null
+
 const AppPage = () => {
   const params = useParams()
   const router = useRouter()
-  const { name } = params
+  const { name } = params as { name: string }
   const queryClient = useQueryClient()
   const [message, setMessage] = useState("")
   const [messages, setMessages] = useState<Message[]>([])
-  const [fullChatData, setFullChatData] = useState<any>(null)
+  const [fullChatData, setFullChatData] = useState<unknown>(null)
   const [activeTab, setActiveTab] = useState("preview")
   const [isDeploying, setIsDeploying] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showFileUpload, setShowFileUpload] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([])
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [selectedVersion, setSelectedVersion] = useState<string>("")
   const [currentUserId, setCurrentUserId] = useState<string>("")
   const [previewKey, setPreviewKey] = useState<number>(Date.now()) // Key to force preview refresh
@@ -79,6 +89,61 @@ const AppPage = () => {
   const supabase = createClient()
   const { toast } = useToast()
   // Fixed layout - no longer using resizable
+
+  // Helper to consistently format messages from API/full chat payloads
+  const formatMessages = useCallback(
+    (messageArray: any[], appPromptDataParam: AppPromptTemplate): Message[] => {
+      // Find the index of the first user message to optionally replace later
+      const firstUserMessageIndex = messageArray.findIndex((msg: any) => msg.role === "user")
+
+      return messageArray.map((msg: any, index: number) => {
+        let content: string = msg.content
+        let thinking: string | null = null
+
+        // Extract thinking content from <Thinking> tags and remove them from main content
+        if (msg.role === "assistant" && content) {
+          const thinkingMatch = content.match(/<Thinking>([\s\S]*?)<\/Thinking>/i)
+          if (thinkingMatch) {
+            thinking = thinkingMatch[1].trim()
+            content = content.replace(/<Thinking>[\s\S]*?<\/Thinking>/i, "").trim()
+          }
+
+          // Clean up V0 specific tags from content
+          content = content.replace(/<V0LaunchTasks>[\s\S]*?<\/V0LaunchTasks>/gi, '')
+          content = content.replace(/<CodeProject[\s\S]*?<\/CodeProject>/gi, '')
+
+          // Handle legacy </CodeProject> split logic
+          if (content.includes("</CodeProject>")) {
+            content = content.split("</CodeProject>")[1]
+          }
+
+          content = content.trim()
+        }
+
+        // Replace first user message content based on app type if available
+        let userPrompt: string | null = null
+        if (appPromptDataParam?.type === 'template' && appPromptDataParam.data) {
+          userPrompt = (appPromptDataParam.data as any).user_prompt ?? null
+        } else if (appPromptDataParam?.type === 'custom' && appPromptDataParam.data) {
+          userPrompt = (appPromptDataParam.data as any).prompt ?? null
+        }
+
+        if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
+          content = userPrompt
+        }
+
+        return {
+          id: msg.id,
+          role: msg.role,
+          content,
+          timestamp: msg.created_at,
+          thinking: thinking ?? undefined,
+          files: msg.files || [],
+        }
+      })
+    },
+    []
+  )
 
   // Fetch app data
   const {
@@ -561,50 +626,8 @@ ${app.active_fields_text || ''}
         
         // Replace optimistic messages with real messages from API response
         const messageArray = Array.isArray(data.fullChatData) ? data.fullChatData : (data.fullChatData.messages || [])
-        const firstUserMessageIndex = messageArray.findIndex((msg: any) => msg.role === "user")
-        
-        const formattedMessages = messageArray.map((msg: any, index: number) => {
-          let content = msg.content
-          let thinking = null
-
-          // Extract thinking content from <Thinking></Thinking> tags
-          if (msg.role === "assistant" && content) {
-            const thinkingMatch = content.match(/<Thinking>([\s\S]*?)<\/Thinking>/i)
-            if (thinkingMatch) {
-              thinking = thinkingMatch[1].trim()
-              content = content.replace(/<Thinking>[\s\S]*?<\/Thinking>/i, "").trim()
-            }
-
-            // Clean up V0 specific tags from content
-            content = content.replace(/<V0LaunchTasks>[\s\S]*?<\/V0LaunchTasks>/gi, '');
-            content = content.replace(/<CodeProject[\s\S]*?<\/CodeProject>/gi, '');
-            
-            // Handle legacy </CodeProject> split logic
-            if (content.includes("</CodeProject>")) {
-              content = content.split("</CodeProject>")[1];
-            }
-            
-            content = content.trim();
-          }
-          
-          // Replace first user message content with template user_prompt if available (only for template apps)
-          const userPrompt = (appPromptData?.type === 'template' && appPromptData.data) ? (appPromptData.data as any).user_prompt : null
-          if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
-            content = userPrompt
-          }
-
-          return {
-            id: msg.id,
-            role: msg.role,
-            content: content,
-            timestamp: msg.created_at,
-            thinking: thinking,
-            files: msg.files || [],
-          }
-        })
-        
-        // Update messages state with real data
-        setMessages(formattedMessages)
+        const formatted = formatMessages(messageArray, appPromptData as AppPromptTemplate)
+        setMessages(formatted)
       }
       
       // Invalidate and refetch versions
@@ -684,49 +707,8 @@ ${app.active_fields_text || ''}
       
       // Check if the chatData is the full response or just messages array
       const messageArray = Array.isArray(chatData) ? chatData : (chatData.messages || [])
-      
-      // Find the first user message index to replace
-      const firstUserMessageIndex = messageArray.findIndex((msg: any) => msg.role === "user")
-      
-      const formattedMessages = messageArray.map((msg: any, index: number) => {
-        let content = msg.content
-        let thinking = null
-
-        // Extract thinking content from <Thinking></Thinking> tags
-        if (msg.role === "assistant" && content) {
-          const thinkingMatch = content.match(/<Thinking>([\s\S]*?)<\/Thinking>/i)
-          if (thinkingMatch) {
-            thinking = thinkingMatch[1].trim()
-            // Remove the thinking tags from the main content
-            content = content.replace(/<Thinking>[\s\S]*?<\/Thinking>/i, "").trim()
-          }
-        }
-        
-        // Replace first user message content with appropriate prompt based on app type
-        let userPrompt = null
-        if (appPromptData?.type === 'template' && appPromptData.data) {
-          // Template apps: use template user_prompt
-          userPrompt = (appPromptData.data as any).user_prompt
-        } else if (appPromptData?.type === 'custom' && appPromptData.data) {
-          // Custom apps: use the original custom prompt
-          userPrompt = (appPromptData.data as any).prompt
-        }
-        
-        if (index === firstUserMessageIndex && msg.role === "user" && userPrompt) {
-          content = userPrompt
-        }
-
-        return {
-          id: msg.id,
-          role: msg.role,
-          content: content,
-          timestamp: msg.created_at,
-          thinking: thinking,
-          files: msg.files || [],
-        }
-      })
-      
-      setMessages(formattedMessages)
+      const formatted = formatMessages(messageArray, appPromptData as AppPromptTemplate)
+      setMessages(formatted)
     }
   }, [chatData, appPromptData])
 
@@ -737,7 +719,7 @@ ${app.active_fields_text || ''}
     }
   }, [messages])
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = useCallback((e: React.FormEvent) => {
     e.preventDefault()
     if (message.trim() && !sendMessageMutation.isPending) {
       // Create optimistic user message
@@ -762,7 +744,7 @@ ${app.active_fields_text || ''}
       // Send the message
       sendMessageMutation.mutate(message.trim())
     }
-  }
+  }, [message, sendMessageMutation])
 
   const handleDeploy = () => {
     if (!isDeploying && !deployMutation.isPending) {
