@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Plus, Info, Loader2, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useEffect, useState } from "react"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import { toast } from "sonner"
 import type { ColumnSyncResult } from "@/context/GoogleSheetsContext"
+import { createClient } from "@/lib/supabase/client"
 
 // Define the type for column/field data
 interface Field {
@@ -52,14 +54,16 @@ interface ReviewFieldsProps {
   onFieldsChange?: (count: number) => void
   onFieldsUpdate?: (fields: Field[]) => void
   columnChanges?: ColumnSyncResult | null
+  templateId?: string
 }
 
-export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: ReviewFieldsProps) {
+export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges, templateId }: ReviewFieldsProps) {
   const [loading, setLoading] = useState(true)
   const [fields, setFields] = useState<Field[]>([])
   const [error, setError] = useState<string | null>(null)
   const [includedFieldCount, setIncludedFieldCount] = useState(0)
   const [customFieldCounter, setCustomFieldCounter] = useState(0)
+  const [isTemplateSuggestions, setIsTemplateSuggestions] = useState(false)
   const { selectedSheet, getSheetColumns, getSheetConnection } = useGoogleSheets()
 
   // Function to fetch column data when the component loads
@@ -82,21 +86,6 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
 
           // Check if we have column changes from the previous step (regardless of hasChanges flag)
           if (columnChanges) {
-            console.log("⚠️ ReviewFields received columnChanges:", JSON.stringify(columnChanges, null, 2));
-            console.log("⚠️ hasChanges flag is:", columnChanges.hasChanges);
-            console.log("📊 Applying column changes to fields", columnChanges.changes);
-            
-            // Log detailed info about detected changes
-            const addedColumns = columnChanges.changes.filter(c => c.type === 'added').length;
-            const removedColumns = columnChanges.changes.filter(c => c.type === 'removed').length;
-            const reorderedColumns = columnChanges.changes.filter(c => c.type === 'reordered').length;
-            console.log(`📈 Added: ${addedColumns}, Removed: ${removedColumns}, Reordered: ${reorderedColumns}`);
-            
-            console.log(
-              "🧩 Processing merged columns with possible removed flags:",
-              columnChanges.mergedColumns.map((c) => ({ name: c.name, isRemoved: !!c.isRemoved })),
-            )
-
             // Find change status for each column from the changes array
             const changeMap = new Map(columnChanges.changes.map(c => [c.name, c]));
             
@@ -121,15 +110,6 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
                 isReordered: isReorderedFlag,
                 oldIndex: isReorderedFlag ? change?.index : undefined,
                 newIndex: isReorderedFlag ? change?.newIndex : undefined
-              }
-              
-              // Log the change details
-              if (isRemovedFlag) {
-                console.log(`🚫 Field ${col.name} marked as REMOVED`);
-              } else if (isAddedFlag) {
-                console.log(`➕ Field ${col.name} marked as ADDED`);
-              } else if (isReorderedFlag) {
-                console.log(`🔄 Field ${col.name} marked as REORDERED (from ${fieldObj.oldIndex} to ${fieldObj.newIndex})`);
               }
               
               return fieldObj
@@ -165,6 +145,42 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
         const data = await getSheetColumns(selectedSheet.id)
 
         if (data.isEmpty) {
+          // Sheet is empty and no existing connection - check for template suggestions
+          if (templateId) {
+            const supabase = createClient()
+            try {
+              const { data: templateData, error: templateError } = await supabase
+                .from('templates')
+                .select('new_sheet_columns_metadata')
+                .eq('id', templateId)
+                .single()
+
+              if (!templateError && templateData?.new_sheet_columns_metadata && Array.isArray(templateData.new_sheet_columns_metadata)) {
+                // Process template suggestions into storedFields format
+                const templateSuggestions = templateData.new_sheet_columns_metadata.map((col: any, index: number) => ({
+                  id: col.id || `template-${index}`,
+                  name: col.name,
+                  type: col.type,
+                  description: col.description || "",
+                  include: !!col.active, // Respect the active field from template
+                  sampleData: [], // No sample data from templates
+                  options: col.options || [],
+                  originalIndex: col.originalIndex || index
+                }))
+
+                setFields(templateSuggestions)
+                setIsTemplateSuggestions(true)
+                toast.success("Loaded template field suggestions. Customize as needed.")
+                setLoading(false)
+                return
+              }
+            } catch (templateFetchError) {
+              console.error("Error fetching template suggestions:", templateFetchError)
+              // Fall through to default empty sheet handling
+            }
+          }
+          
+          // Fallback: No template suggestions available
           setFields([])
           toast.error("The selected sheet appears to be empty. Please add custom fields.")
         } else {
@@ -429,20 +445,37 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
       )}
 
       {fields.length > 0 ? (
-        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-          <div className="flex items-start">
-            <Info className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
-            <div>
-              <h3 className="font-medium text-blue-900 dark:text-blue-300">
-                Field types have been automatically detected
-              </h3>
-              <p className="text-blue-800 dark:text-blue-400 text-sm mt-1">
-                We've analyzed your sheet data to suggest appropriate field types. Please review and adjust them if
-                needed to ensure your app is correctly configured.
-              </p>
+        isTemplateSuggestions ? (
+          <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-6">
+            <div className="flex items-start">
+              <Info className="h-5 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
+              <div>
+                <h3 className="font-medium text-green-900 dark:text-green-300">
+                  Template recommended fields loaded
+                </h3>
+                <p className="text-green-800 dark:text-green-400 text-sm mt-1">
+                  These are the recommended fields for this template. You can customize their names, types, and descriptions. 
+                  These fields will be automatically added as column headers to your Google Sheet when you finish the wizard.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+            <div className="flex items-start">
+              <Info className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
+              <div>
+                <h3 className="font-medium text-blue-900 dark:text-blue-300">
+                  Field types have been automatically detected
+                </h3>
+                <p className="text-blue-800 dark:text-blue-400 text-sm mt-1">
+                  We've analyzed your sheet data to suggest appropriate field types. Please review and adjust them if
+                  needed to ensure your app is correctly configured.
+                </p>
+              </div>
+            </div>
+          </div>
+        )
       ) : (
         <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-6">
           <div className="flex items-start">
@@ -472,8 +505,9 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
             We found {fields.length} fields. Check the ones you want to include and customize as needed.
           </p>
 
-          <div className="grid grid-cols-1 gap-4">
-            {fields.map((field: Field, index) => {
+          <ScrollArea className="h-[60vh] pr-4">
+            <div className="grid grid-cols-1 gap-4">
+              {fields.map((field: Field, index) => {
               // Ensure the isRemoved flag is a boolean
               const isRemoved = field.isRemoved === true
 
@@ -664,8 +698,9 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges }: 
                   )}
                 </div>
               )
-            })}
-          </div>
+              })}
+            </div>
+          </ScrollArea>
 
           <div className="border border-dashed rounded-md p-4 mt-6 flex justify-center">
             <Button variant="outline" className="flex items-center bg-transparent" onClick={addCustomField}>

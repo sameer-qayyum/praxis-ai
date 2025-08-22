@@ -32,7 +32,10 @@ WizardContainer
 interface WizardContainerProps {
   title: string        // Title displayed at the top of the wizard
   description: string  // Description text below the title
-  templateId: string   // ID of the template being used
+  templateId?: string  // ID of the template being used (optional for custom apps)
+  customPrompt?: string  // Custom prompt for non-template apps
+  customPromptId?: string | null  // Custom prompt ID for tracking
+  isCustomApp?: boolean  // Flag for custom vs template apps
 }
 ```
 
@@ -108,14 +111,17 @@ Allows users to:
 
 Enables users to:
 - View columns from the selected Google Sheet
+- **Template Suggestions**: Load recommended fields from `templates.new_sheet_columns_metadata` when sheet is empty
 - Customize field properties (name, type, description)
-- Include/exclude fields for the final app
+- Include/exclude fields for the final app (respects template `active` field)
 - Add custom fields if needed
+- **ScrollArea**: Fields contained in scrollable area (60vh) to keep navigation buttons accessible
 - See visual indicators for column changes:
   - Red border/badge for columns removed from Google Sheet
   - Green border/badge for columns newly added to Google Sheet
   - Amber border/badge for columns reordered in Google Sheet
 - Auto-exclude removed columns (defaults to unchecked "Include")
+- **Info Messages**: Different messages for template suggestions vs detected fields
 
 ### ConfigureAppAccess
 
@@ -151,29 +157,51 @@ When the user clicks the Finish button:
    - Disables button during submission (`isSubmitting` state)
 
 2. **Data Preparation**:
-   - Filters the fields array to include only fields with `include: true`
-   - Maps to the required format for storage (id, name, type, description, options)
-   - Creates metadata with sheet name and description
+   - Maps all fields to `columnsMetadata` format with `active: !!field.include`
+   - Creates filtered `activeColumnsMetadata` for app generation
+   - Stores complete field structure (preserves inactive fields)
+   - Format: `{id, name, type, description, options, active, originalIndex}`
 
 3. **Database Operation**:
    - Calls `saveSheetConnection()` with formatted data
    - Function checks if connection already exists (for update vs. insert)
    - Performs upsert operation in the `google_sheets_connections` table
-   - Sets `requires_authentication` field in the apps table based on user's choice
+   - Creates app record in `apps` table with `data_model` field
+   - Sets `requires_authentication` and `path_secret` fields
+   - Creates `app_permissions` record for admin access
+   - Updates `user_custom_prompts.app_id` for custom apps
 
 4. **User Feedback**:
    - Shows success toast if operation completes successfully
    - Shows error toast if any issues occur
    - Resets submission state when complete
-- Search, sort, and filter sheets list
-- Handle pagination for large lists
 
-### ReviewFields
+## Template Suggestions Feature
 
-Allows users to:
-- View extracted form fields
-- Customize field properties
-- Finalize form configuration
+### How It Works
+1. **Empty Sheet Detection**: When `data.isEmpty` is true and no existing connection metadata
+2. **Template Fetch**: Queries `templates.new_sheet_columns_metadata` using `templateId`
+3. **Field Processing**: Converts template data to ReviewFields format:
+   ```typescript
+   {
+     id: col.id || `template-${index}`,
+     name: col.name,
+     type: col.type,
+     description: col.description || "",
+     include: !!col.active, // Respects template's active field
+     sampleData: [],
+     options: col.options || [],
+     originalIndex: col.originalIndex || index
+   }
+   ```
+4. **UI Display**: Shows green info message explaining these are recommended fields
+5. **Fallback**: If no template suggestions, shows standard "add custom fields" flow
+
+### Benefits
+- **No Prompt Anxiety**: Users get pre-configured field suggestions
+- **Customizable**: All fields can be modified (name, type, description, options)
+- **Selective**: Users can include/exclude suggested fields
+- **Auto-Integration**: Selected fields automatically added to Google Sheet
 
 ## Key Integrations
 
@@ -183,9 +211,16 @@ Allows users to:
    - Token refresh mechanism
    - Write new custom column headers to sheet
 
-2. **Styling**
+2. **Database Tables**
+   - `templates.new_sheet_columns_metadata` - Template field suggestions
+   - `google_sheets_connections.columns_metadata` - Saved field configurations
+   - `apps.data_model` - App-specific field metadata
+   - `user_custom_prompts` - Custom app prompts
+
+3. **Styling**
    - Tailwind CSS for responsive design
    - Shadcn UI components for consistent UI
+   - ScrollArea for field list containment
 
 ## Best Practices
 

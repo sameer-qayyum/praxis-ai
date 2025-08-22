@@ -406,6 +406,7 @@ export function WizardContainer({ title, description, templateId, customPrompt, 
             onFieldsChange={setSelectedFieldsCount} 
             onFieldsUpdate={setFields} 
             columnChanges={columnChanges}
+            templateId={templateId}
           />
         case 4:
           return <ConfigureAppAccess
@@ -430,6 +431,7 @@ export function WizardContainer({ title, description, templateId, customPrompt, 
             onFieldsChange={setSelectedFieldsCount} 
             onFieldsUpdate={setFields} 
             columnChanges={columnChanges}
+            templateId={templateId}
           />
         case 4:
           return <ConfigureAppAccess
