@@ -956,7 +956,7 @@ ${app.active_fields_text || ''}
         <div 
           className="fixed bg-white dark:bg-slate-900 shadow-sm z-30 rounded-lg border border-gray-100 dark:border-gray-800" 
           style={{ 
-            bottom: '16px', /* Minimal space at bottom */
+            bottom: '5px', /* Minimal space at bottom */
             left: 'calc(70px + 16px)', /* Accounts for collapsed sidebar width + margin */
             width: 'calc(30% - 40px)', /* Account for margins on both sides */
             maxWidth: 'calc(30% - 40px)',
