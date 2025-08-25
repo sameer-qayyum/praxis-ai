@@ -5,8 +5,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Plus, Info, Loader2, Trash2 } from "lucide-react"
+import { Plus, Info, Loader2, Trash2, HelpCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useEffect, useState } from "react"
 import { useGoogleSheets } from "@/context/GoogleSheetsContext"
 import { toast } from "sonner"
@@ -570,12 +571,23 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges, te
                           id={`include-${field.id}`}
                           checked={field.include}
                           onCheckedChange={(checked) => handleIncludeChange(field.id, !!checked)}
+                          className="border-2 border-gray-300 data-[state=checked]:border-blue-500 dark:border-gray-600 dark:data-[state=checked]:border-blue-400"
                         />
-                        <label htmlFor={`include-${field.id}`} className="text-sm font-medium cursor-pointer">
-                          Include field
-                        </label>
+                        <div className="flex items-center gap-1">
+                          <label htmlFor={`include-${field.id}`} className="text-sm font-medium cursor-pointer">
+                            Include field
+                          </label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 text-gray-400 hover:text-gray-600 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p>When checked, this field will be included in your app to fill out. Unchecked fields are not editable by the user.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                       </div>
-                      <Badge variant="outline">{getFieldType(field)}</Badge>
+                    
                       
                       {/* Show delete button only for custom fields */}
                       {field.id.startsWith('custom-') && (
@@ -592,7 +604,17 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges, te
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
-                        <label className="text-xs font-medium block mb-1.5">Field Name</label>
+                        <div className="flex items-center gap-1 mb-1.5">
+                          <label className="text-xs font-medium">Field Name</label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 text-gray-400 hover:text-gray-600 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p>The name of this field as it will appear in your google sheet. Praxis will create a user friendly name of the field in the app</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <Input
                           value={field.name}
                           onChange={(e) => handleNameChange(field.id, e.target.value)}
@@ -601,7 +623,17 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges, te
                       </div>
 
                       <div>
-                        <label className="text-xs font-medium block mb-1.5">Field Type</label>
+                        <div className="flex items-center gap-1 mb-1.5">
+                          <label className="text-xs font-medium">Field Type</label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 text-gray-400 hover:text-gray-600 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p>The type of input field users will see in your app. This determines how data is collected and validated.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <Select
                           value={field.type}
                           onValueChange={(value) => {
@@ -622,7 +654,17 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges, te
                       </div>
 
                       <div className="md:col-span-2">
-                        <label className="text-xs font-medium block mb-1.5">Description</label>
+                        <div className="flex items-center gap-1 mb-1.5">
+                          <label className="text-xs font-medium">Description</label>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 text-gray-400 hover:text-gray-600 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p>Context about the field. Helps Praxis understand the fields and it's value to generate the app accurately.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <Input
                           value={field.description || ""}
                           onChange={(e) => handleDescriptionChange(field.id, e.target.value)}
@@ -634,7 +676,17 @@ export function ReviewFields({ onFieldsChange, onFieldsUpdate, columnChanges, te
                     {/* Display options UI for field types that need it */}
                     {typesRequiringOptions.includes(field.type) && (
                       <div className="mt-4 border p-3 rounded-md bg-gray-50 dark:bg-gray-900">
-                        <p className="text-sm font-medium mb-2">Options:</p>
+                        <div className="flex items-center gap-1 mb-2">
+                          <p className="text-sm font-medium">Options:</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 text-gray-400 hover:text-gray-600 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p>Define the choices users can select from. Each option will appear as a selectable item in your app.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
 
                         {/* List existing options */}
                         {(field.options || []).map((option: string, index: number) => (
