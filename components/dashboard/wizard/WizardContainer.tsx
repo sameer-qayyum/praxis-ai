@@ -412,6 +412,8 @@ export function WizardContainer({ title, description, templateId, customPrompt, 
           return <ConfigureAppAccess
             onAuthSettingChange={setRequiresAuthentication}
             defaultValue={false}
+            templateId={templateId}
+            isCustomApp={isCustomApp}
           />
         default:
           return <div>Step not found</div>
@@ -437,6 +439,8 @@ export function WizardContainer({ title, description, templateId, customPrompt, 
           return <ConfigureAppAccess
             onAuthSettingChange={setRequiresAuthentication}
             defaultValue={false}
+            templateId={templateId}
+            isCustomApp={isCustomApp}
           />
         default:
           return <div>Step not found</div>
