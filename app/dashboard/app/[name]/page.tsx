@@ -85,6 +85,7 @@ const AppPage = () => {
   const [previewKey, setPreviewKey] = useState<number>(Date.now()) // Key to force preview refresh
   const [userHasPermission, setUserHasPermission] = useState<boolean | null>(null) // Track permission status
   const [permissionCheckComplete, setPermissionCheckComplete] = useState(false) // Track if check is complete
+  const [chatActiveTab, setChatActiveTab] = useState<'chat' | 'guide'>('chat') // Track active tab in chat panel
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const initialMessagesLoad = useRef<boolean>(true)
   const supabase = createClient()
@@ -924,6 +925,8 @@ ${app.active_fields_text || ''}
             setUploadedFiles={setUploadedFiles}
             sendMessageMutation={sendMessageMutation}
             messagesEndRef={messagesEndRef}
+            app={app}
+            onTabChange={setChatActiveTab}
           />
         </div>
 
@@ -952,7 +955,7 @@ ${app.active_fields_text || ''}
       </div>
 
       {/* Message input fixed to viewport with proper margins for footer and sidebar */}
-      {!isFullscreen && (
+      {!isFullscreen && chatActiveTab === 'chat' && (
         <div 
           className="fixed bg-white dark:bg-slate-900 shadow-sm z-30 rounded-lg border border-gray-100 dark:border-gray-800" 
           style={{ 
