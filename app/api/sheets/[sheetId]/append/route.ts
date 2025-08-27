@@ -192,8 +192,38 @@ export async function POST(
       );
     }
     
-    // Process form data for Google Sheets format
+    // Process form data for Google Sheets format - will be replaced with proper ordering
     const valueArray = [Object.values(rowData)];
+    
+    // Create properly ordered values using columns_metadata
+    const columnsMetadata = sheetData.columns_metadata || [];
+    let orderedValueArray = valueArray; // Default fallback
+    
+    if (columnsMetadata.length > 0) {
+      // Sort columns by originalIndex to maintain sheet order
+      const sortedColumns = [...columnsMetadata].sort((a, b) => a.originalIndex - b.originalIndex);
+      
+      // Map rowData to match column order from metadata
+      const orderedValues = sortedColumns.map(column => {
+        const columnName = column.name;
+        
+        // Try exact match first
+        if (rowData.hasOwnProperty(columnName)) {
+          return rowData[columnName] ?? '';
+        }
+        
+        // Try case-insensitive match
+        const lowerColumnName = columnName.toLowerCase();
+        const matchingKey = Object.keys(rowData).find(key => 
+          key.toLowerCase() === lowerColumnName
+        );
+        
+        return matchingKey ? (rowData[matchingKey] ?? '') : '';
+      });
+      
+      orderedValueArray = [orderedValues];
+      console.log('Using ordered values for both UPDATE and APPEND:', orderedValues);
+    }
     
     // Handle sheet name formatting - only quote if necessary
     let formattedSheetName = sheetData.sheet_name;
@@ -268,7 +298,7 @@ export async function POST(
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              values: valueArray
+              values: orderedValueArray
             })
           }
         );
@@ -360,7 +390,7 @@ export async function POST(
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              values: valueArray
+              values: orderedValueArray
             })
           }
         );
