@@ -47,7 +47,7 @@ The request body should be a JSON object with the following structure:
 }
 ```
 
-Where `data` is an object with key-value pairs representing the row data. The values will be converted to an array in the order of the object keys.
+Where `data` is an object with key-value pairs representing the row data. The API automatically maps field names to the correct column positions using the sheet's metadata structure.
 
 ## Response
 
