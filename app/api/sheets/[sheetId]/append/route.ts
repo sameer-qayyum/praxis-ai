@@ -194,7 +194,21 @@ export async function POST(
     
     // Process form data for Google Sheets format
     const valueArray = [Object.values(rowData)];
-    const formattedSheetName = `'${sheetData.sheet_name.replace(/'/g, "''")}'`;
+    
+    // Handle sheet name formatting - only quote if necessary
+    let formattedSheetName = sheetData.sheet_name;
+    const needsQuotes = /[\s\-\+\*\/\(\)\[\]\{\}\'\"\,\.\!\?\:\;]/.test(formattedSheetName) || /^\d/.test(formattedSheetName);
+    
+    if (needsQuotes) {
+      formattedSheetName = `'${sheetData.sheet_name.replace(/'/g, "''")}'`;
+    }
+    
+    console.log('Sheet formatting:', {
+      original: sheetData.sheet_name,
+      needsQuotes,
+      formatted: formattedSheetName,
+      spreadsheetId: sheetData.spreadsheet_id
+    });
     
     // Handle update mode vs append mode
     if (isUpdateMode) {
@@ -227,7 +241,11 @@ export async function POST(
         // Find the row index that matches the updateId
         let targetRowIndex = -1;
         for (let i = 0; i < values.length; i++) {
-          if (values[i][0] === updateId) {
+          const cellValue = values[i][0];
+          const cellValueStr = cellValue ? String(cellValue).trim() : '';
+          const updateIdStr = String(updateId).trim();
+          
+          if (cellValueStr === updateIdStr) {
             targetRowIndex = i + 1; // Google Sheets uses 1-based indexing
             break;
           }
