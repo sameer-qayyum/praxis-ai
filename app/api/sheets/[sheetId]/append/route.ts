@@ -302,22 +302,69 @@ export async function POST(
       }
     }
     
-    // APPEND MODE: Original functionality (default behavior)
+    // APPEND MODE: Use columns_metadata to maintain proper column structure
     try {
+      // Use the columns_metadata from the sheet data to maintain proper order
+      const columnsMetadata = sheetData.columns_metadata || [];
+      let appendResponse;
       
-      const appendResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${credentials.access_token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            values: valueArray
-          })
-        }
-      );
+      if (columnsMetadata.length > 0) {
+        console.log('Using columns metadata for proper ordering');
+        
+        // Sort columns by originalIndex to maintain sheet order
+        const sortedColumns = [...columnsMetadata].sort((a, b) => a.originalIndex - b.originalIndex);
+        
+        // Map rowData to match column order from metadata
+        const orderedValues = sortedColumns.map(column => {
+          const columnName = column.name;
+          
+          // Try exact match first
+          if (rowData.hasOwnProperty(columnName)) {
+            return rowData[columnName] ?? '';
+          }
+          
+          // Try case-insensitive match
+          const lowerColumnName = columnName.toLowerCase();
+          const matchingKey = Object.keys(rowData).find(key => 
+            key.toLowerCase() === lowerColumnName
+          );
+          
+          return matchingKey ? (rowData[matchingKey] ?? '') : '';
+        });
+        
+        console.log('Column order from metadata:', sortedColumns.map(c => c.name));
+        console.log('Ordered values for append:', orderedValues);
+        
+        appendResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${credentials.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              values: [orderedValues]
+            })
+          }
+        );
+      } else {
+        console.log('No columns metadata found, using original method');
+        // Fallback to original method if no metadata
+        appendResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${credentials.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              values: valueArray
+            })
+          }
+        );
+      }
   
       if (!appendResponse.ok) {
         const errorText = await appendResponse.text();
