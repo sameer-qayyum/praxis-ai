@@ -1,12 +1,18 @@
-# Google Sheets Append API
+# Google Sheets Append/Update API
 
-This API route allows you to append rows of data to a Google Sheet that a user has connected through the Praxis AI platform.
+This API route allows you to append new rows or update existing rows in a Google Sheet that a user has connected through the Praxis AI platform.
 
 ## Endpoint
 
 ```
 POST /api/sheets/:sheetId/append
 ```
+
+## Modes of Operation
+
+This API supports two modes:
+- **Append Mode** (default): Adds new rows to the end of the sheet
+- **Update Mode**: Updates existing rows based on an ID field
 
 ## Authentication
 
@@ -16,9 +22,16 @@ This endpoint requires authentication. The user must have an active session with
 
 ### URL Parameters
 
-| Parameter | Description |
-|-----------|-------------|
-| `sheetId` | The ID of the Google Sheet to append data to |
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `sheetId` | The ID of the Google Sheet to modify | Yes |
+
+### Query Parameters (for Update Mode)
+
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `updateId` | The ID value to search for when updating | No (triggers update mode) | - |
+| `idColumn` | The column letter containing the ID field | No | A |
 
 ### Request Body
 
@@ -26,34 +39,50 @@ The request body should be a JSON object with the following structure:
 
 ```json
 {
-  "values": [
-    ["Value 1", "Value 2", "Value 3"],
-    ["Another row", "More data", "Third column"]
-  ]
+  "data": {
+    "field1": "value1",
+    "field2": "value2",
+    "field3": "value3"
+  }
 }
 ```
 
-Where `values` is a 2D array representing the rows to append. Each inner array represents one row of data, with each element representing a cell value.
+Where `data` is an object with key-value pairs representing the row data. The values will be converted to an array in the order of the object keys.
 
 ## Response
 
-### Success Response
+### Success Response (Append Mode)
 
 ```json
 {
   "success": true,
-  "updatedRows": 2,
-  "updatedColumns": 3,
-  "updatedCells": 6
+  "mode": "append",
+  "updatedRange": "Sheet1!A5:C5",
+  "updatedRows": 1
+}
+```
+
+### Success Response (Update Mode)
+
+```json
+{
+  "success": true,
+  "mode": "update",
+  "updatedRange": "Sheet1!A3:C3",
+  "updatedRows": 1,
+  "updatedCells": 3,
+  "targetRow": 3
 }
 ```
 
 | Field | Description |
 |-------|-------------|
 | `success` | Boolean indicating successful operation |
-| `updatedRows` | Number of rows that were appended |
-| `updatedColumns` | Number of columns that were updated |
-| `updatedCells` | Total number of cells that were updated |
+| `mode` | Operation mode: "append" or "update" |
+| `updatedRange` | Google Sheets range that was modified |
+| `updatedRows` | Number of rows that were modified |
+| `updatedCells` | Number of cells that were updated (update mode only) |
+| `targetRow` | Row number that was updated (update mode only) |
 
 ### Error Responses
 
@@ -69,7 +98,7 @@ Where `values` is a 2D array representing the rows to append. Each inner array r
 
 ```json
 {
-  "error": "Invalid request body: Expected { values: any[][] }"
+  "error": "Invalid data format. Expected object."
 }
 ```
 
@@ -81,50 +110,48 @@ Where `values` is a 2D array representing the rows to append. Each inner array r
 }
 ```
 
-```json
-{
-  "error": "Data validation failed",
-  "details": "Row has more values than available columns"
-}
-```
-
 #### 404 Not Found
 
 ```json
 {
-  "error": "Sheet connection not found or unauthorized"
+  "error": "Sheet not found or access denied"
+}
+```
+
+```json
+{
+  "error": "No row found with A = 'user123'"
 }
 ```
 
 ## How It Works
 
-1. **Authentication Check**:
-   - Validates the user has an active Supabase session
-   - Retrieves their Google OAuth credentials
+### Append Mode (Default)
+1. **Authentication & Validation**: Validates user session and Google credentials
+2. **Token Management**: Refreshes expired tokens automatically
+3. **Data Processing**: Converts object data to array format
+4. **Google Sheets API**: Uses `append` method to add row to end of sheet
+5. **Response**: Returns success with updated range information
 
-2. **Token Management**:
-   - Checks if the Google OAuth token is expired
-   - Automatically refreshes the token if needed using the Supabase Edge Function
+### Update Mode (with updateId parameter)
+1. **Authentication & Validation**: Same as append mode
+2. **Row Search**: Queries the specified ID column to find matching row
+3. **Row Location**: Identifies the exact row number containing the ID
+4. **Data Update**: Uses `update` method to overwrite the specific row
+5. **Response**: Returns success with target row and update details
 
-3. **Data Validation**:
-   - Retrieves the sheet connection metadata from the database
-   - Verifies the user has access to this sheet
-   - Validates row data against the column structure if metadata exists
-
-4. **Google Sheets API Call**:
-   - Makes an authenticated request to the Google Sheets API
-   - Uses the `valueInputOption=USER_ENTERED` parameter to handle formatting
-   - Appends the provided data rows to the sheet
-
-5. **Response Processing**:
-   - Returns success confirmation with update statistics
-   - Provides detailed error information if any step fails
+### Error Handling
+- **Authentication failures**: Token refresh or reconnection required
+- **Sheet access**: Validates user owns the sheet connection
+- **Row not found**: Returns 404 when updateId doesn't exist
+- **API errors**: Detailed Google Sheets API error messages
 
 ## Example Usage
 
+### Append Mode - Adding New Row
+
 ```javascript
-// Example: Adding two rows of data to a sheet
-const appendData = async (sheetId) => {
+const appendData = async (sheetId, rowData) => {
   try {
     const response = await fetch(`/api/sheets/${sheetId}/append`, {
       method: 'POST',
@@ -132,10 +159,11 @@ const appendData = async (sheetId) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        values: [
-          ['John Doe', '30', 'john@example.com'],
-          ['Jane Smith', '28', 'jane@example.com']
-        ]
+        data: {
+          name: 'John Doe',
+          age: '30',
+          email: 'john@example.com'
+        }
       })
     });
     
@@ -145,6 +173,7 @@ const appendData = async (sheetId) => {
       throw new Error(result.error || 'Failed to append data');
     }
     
+    console.log('Appended to:', result.updatedRange);
     return result;
   } catch (error) {
     console.error('Error appending data:', error);
@@ -153,14 +182,113 @@ const appendData = async (sheetId) => {
 };
 ```
 
+### Update Mode - Updating Existing Row
+
+```javascript
+const updateData = async (sheetId, userId, updatedData) => {
+  try {
+    const response = await fetch(`/api/sheets/${sheetId}/append?updateId=${userId}&idColumn=A`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        data: {
+          id: userId,
+          name: 'John Doe Updated',
+          age: '31',
+          email: 'john.updated@example.com'
+        }
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to update data');
+    }
+    
+    console.log('Updated row:', result.targetRow);
+    return result;
+  } catch (error) {
+    console.error('Error updating data:', error);
+    throw error;
+  }
+};
+```
+
+### Complete Function with Mode Detection
+
+```javascript
+const saveToSheet = async (sheetId, data, options = {}) => {
+  const { updateId, idColumn = 'A' } = options;
+  
+  // Build URL with query parameters for update mode
+  let url = `/api/sheets/${sheetId}/append`;
+  if (updateId) {
+    url += `?updateId=${encodeURIComponent(updateId)}&idColumn=${idColumn}`;
+  }
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ data })
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || `Failed to ${updateId ? 'update' : 'append'} data`);
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`Error ${updateId ? 'updating' : 'appending'} data:`, error);
+    throw error;
+  }
+};
+
+// Usage examples:
+// Append new row
+await saveToSheet('sheet123', { name: 'John', email: 'john@example.com' });
+
+// Update existing row
+await saveToSheet('sheet123', { name: 'John Updated', email: 'john@example.com' }, { 
+  updateId: 'user123', 
+  idColumn: 'A' 
+});
+```
+
+## API Function Parameters
+
+### Required Parameters
+- **sheetId**: Google Sheet identifier from your connected sheets
+- **data**: Object containing the row data to save
+
+### Optional Parameters (Update Mode)
+- **updateId**: Value to search for in the ID column
+- **idColumn**: Column letter containing the ID field (default: 'A')
+
+### Response Fields
+- **success**: Boolean indicating operation success
+- **mode**: 'append' or 'update' 
+- **updatedRange**: Google Sheets range that was modified
+- **updatedRows**: Number of rows modified
+- **updatedCells**: Number of cells updated (update mode only)
+- **targetRow**: Row number updated (update mode only)
+
 ## Error Handling
 
 The API includes comprehensive error handling for:
 
-- Authentication failures
-- Token refresh issues
-- Invalid request formats
-- Data validation problems
-- Google Sheets API errors
+- **Authentication failures**: Session expired or invalid credentials
+- **Token management**: Automatic refresh of expired Google tokens
+- **Sheet access**: Validates user owns the sheet connection
+- **Data validation**: Ensures proper request format
+- **Row not found**: When updateId doesn't exist in the sheet
+- **Google Sheets API errors**: Detailed error messages from Google
 
 Each error response includes a descriptive message and, when appropriate, an action field indicating what the client should do (e.g., "reconnect" for authentication issues).

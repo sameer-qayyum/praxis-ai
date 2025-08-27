@@ -150,6 +150,12 @@ export async function POST(
     // Get sheet ID from params
     const sheetId = params.sheetId;
 
+    // Parse URL to check for update parameters
+    const url = new URL(request.url);
+    const updateId = url.searchParams.get('updateId');
+    const idColumn = url.searchParams.get('idColumn') || 'A'; // Default to column A
+    const isUpdateMode = !!updateId;
+
     // Get the data from the request body
     const body = await request.json().catch(() => null);
     if (!body) {
@@ -186,41 +192,100 @@ export async function POST(
       );
     }
     
-    // Log all available fields for debugging
-    console.log('Available sheet fields:', Object.keys(sheetData));
-    console.log('Spreadsheet ID:', sheetData.spreadsheet_id);
-    console.log('Sheet name:', sheetData.sheet_name);
-    
     // Process form data for Google Sheets format
-    // Convert the object to an array for Google Sheets API format
-    // For a form submission, we convert {key1: value1, key2: value2} to [[key1, key2], [value1, value2]]
-    // Or just [Object.values(rowData)] if we're just appending values
-    
-    // For form submissions, we'll just append the values
     const valueArray = [Object.values(rowData)];
+    const formattedSheetName = `'${sheetData.sheet_name.replace(/'/g, "''")}'`;
     
-    console.log('Appending data to sheet:', {
-      sheetId: params.sheetId,
-      spreadsheetId: sheetData.spreadsheet_id || sheetData.sheet_id,
-      sheetName: sheetData.sheet_name,
-      values: valueArray
-    });
+    // Handle update mode vs append mode
+    if (isUpdateMode) {
+      // UPDATE MODE: Find the row with the specified ID and update it
+      try {
+        // First, query the sheet to find the row with the matching ID
+        const queryResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id}/values/${formattedSheetName}!${idColumn}:${idColumn}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${credentials.access_token}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        if (!queryResponse.ok) {
+          const errorText = await queryResponse.text();
+          console.error('Google Sheets query error:', errorText);
+          return NextResponse.json(
+            { error: "Failed to query Google Sheet for update", details: errorText },
+            { status: queryResponse.status, headers: corsHeaders }
+          );
+        }
+
+        const queryResult = await queryResponse.json();
+        const values = queryResult.values || [];
+        
+        // Find the row index that matches the updateId
+        let targetRowIndex = -1;
+        for (let i = 0; i < values.length; i++) {
+          if (values[i][0] === updateId) {
+            targetRowIndex = i + 1; // Google Sheets uses 1-based indexing
+            break;
+          }
+        }
+
+        if (targetRowIndex === -1) {
+          return NextResponse.json(
+            { error: `No row found with ${idColumn} = '${updateId}'` },
+            { status: 404, headers: corsHeaders }
+          );
+        }
+
+        // Update the specific row
+        const updateResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id}/values/${formattedSheetName}!${targetRowIndex}:${targetRowIndex}?valueInputOption=USER_ENTERED`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${credentials.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              values: valueArray
+            })
+          }
+        );
+
+        if (!updateResponse.ok) {
+          const errorText = await updateResponse.text();
+          console.error('Google Sheets update error:', errorText);
+          return NextResponse.json(
+            { error: "Failed to update Google Sheet row", details: errorText },
+            { status: updateResponse.status, headers: corsHeaders }
+          );
+        }
+
+        const updateResult = await updateResponse.json();
+        
+        return NextResponse.json({
+          success: true,
+          mode: 'update',
+          updatedRange: updateResult.updatedRange,
+          updatedRows: updateResult.updatedRows,
+          updatedCells: updateResult.updatedCells,
+          targetRow: targetRowIndex
+        }, { headers: corsHeaders });
+
+      } catch (error: any) {
+        console.error('Error updating Google Sheet:', error);
+        return NextResponse.json(
+          { error: "Error updating Google Sheet", details: error.message },
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
     
-    // Encode the sheet name to handle special characters
-    const encodedSheetName = encodeURIComponent(sheetData.sheet_name);
-    
-    // Append data to the Google Sheet
+    // APPEND MODE: Original functionality (default behavior)
     try {
-      // Use the spreadsheet_id field which is the actual Google Sheets ID
-      // Add the encoded sheet name to the URL
-      console.log('Making API call to Google Sheets with URL params:', {
-        spreadsheetId: sheetData.spreadsheet_id || sheetData.sheet_id,
-        encodedSheetName
-      });
-      
-      // For sheet names with special characters like spaces or hyphens, we need to use single quotes
-      // Properly format the sheet name for the Google Sheets API
-      const formattedSheetName = `'${sheetData.sheet_name.replace(/'/g, "''")}'`;
       
       const appendResponse = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id || sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
@@ -250,11 +315,11 @@ export async function POST(
       }
   
       const appendResult = await appendResponse.json();
-      console.log('Successfully appended data to sheet:', appendResult);
       
       // Return success response
       return NextResponse.json({
         success: true,
+        mode: 'append',
         updatedRange: appendResult.updates?.updatedRange,
         updatedRows: appendResult.updates?.updatedRows,
       }, { headers: corsHeaders });

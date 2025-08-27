@@ -121,6 +121,15 @@ export async function POST(
       );
     }
     
+    // Check for update parameters in form data
+    const updateId = formData._updateId;
+    const idColumn = formData._idColumn || 'A';
+    
+    // Remove internal parameters from form data before sending to sheet
+    const cleanFormData = { ...formData };
+    delete cleanFormData._updateId;
+    delete cleanFormData._idColumn;
+    
     // Instead of duplicating the Google Sheets API logic, use the existing append API
     // Ensures using the same token refresh, validation, and append logic
     // Use absolute URL with environment variable to avoid origin issues
@@ -131,7 +140,11 @@ export async function POST(
       baseUrl = `https://${baseUrl}`;
     }
     
-    const appendUrl = `${baseUrl}/api/sheets/${sheetId}/append`;
+    // Build URL with query parameters for update mode
+    let appendUrl = `${baseUrl}/api/sheets/${sheetId}/append`;
+    if (updateId) {
+      appendUrl += `?updateId=${encodeURIComponent(updateId)}&idColumn=${encodeURIComponent(idColumn)}`;
+    }
     
     try {
       const appendResponse = await fetch(appendUrl, {
@@ -143,7 +156,7 @@ export async function POST(
           'x-user-id': appData.created_by // Pass the sheet owner's user ID
         },
         body: JSON.stringify({
-          data: formData
+          data: cleanFormData
         })
       });
       
@@ -170,10 +183,13 @@ export async function POST(
         );
       }
       
-      // Return success response
+      // Return success response with mode information
       return NextResponse.json({
         success: true,
-        message: "Form submitted successfully",
+        message: updateId ? "Form updated successfully" : "Form submitted successfully",
+        mode: appendResult.mode || (updateId ? 'update' : 'append'),
+        updatedRange: appendResult.updatedRange,
+        targetRow: appendResult.targetRow
       }, { headers: corsHeaders });
     } catch (error) {
       console.error("Error calling sheets API:", error);
