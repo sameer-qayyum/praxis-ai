@@ -207,7 +207,7 @@ export async function POST(
       original: sheetData.sheet_name,
       needsQuotes,
       formatted: formattedSheetName,
-      spreadsheetId: sheetData.spreadsheet_id
+      spreadsheetId: sheetData.sheet_id
     });
     
     // Handle update mode vs append mode
@@ -216,7 +216,7 @@ export async function POST(
       try {
         // First, query the sheet to find the row with the matching ID
         const queryResponse = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id}/values/${formattedSheetName}!${idColumn}:${idColumn}`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${formattedSheetName}!${idColumn}:${idColumn}`,
           {
             method: 'GET',
             headers: {
@@ -260,7 +260,7 @@ export async function POST(
 
         // Update the specific row
         const updateResponse = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id}/values/${formattedSheetName}!${targetRowIndex}:${targetRowIndex}?valueInputOption=USER_ENTERED`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${formattedSheetName}!${targetRowIndex}:${targetRowIndex}?valueInputOption=USER_ENTERED`,
           {
             method: 'PUT',
             headers: {
@@ -306,7 +306,7 @@ export async function POST(
     try {
       
       const appendResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.spreadsheet_id || sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetData.sheet_id}/values/${formattedSheetName}!A:Z:append?valueInputOption=USER_ENTERED`,
         {
           method: 'POST',
           headers: {
