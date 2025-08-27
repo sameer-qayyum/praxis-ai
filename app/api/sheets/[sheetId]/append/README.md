@@ -126,10 +126,17 @@ Where `data` is an object with key-value pairs representing the row data. The AP
 
 ## How It Works
 
+### Column Structure Preservation
+Both append and update modes use the sheet's `columns_metadata` to maintain proper column structure:
+1. **Metadata Retrieval**: Gets column definitions from the database
+2. **Column Ordering**: Sorts columns by `originalIndex` to match sheet structure
+3. **Field Mapping**: Maps incoming field names to correct column positions
+4. **Empty Value Preservation**: Maintains empty fields in their proper column locations
+
 ### Append Mode (Default)
 1. **Authentication & Validation**: Validates user session and Google credentials
 2. **Token Management**: Refreshes expired tokens automatically
-3. **Data Processing**: Converts object data to array format
+3. **Column Mapping**: Uses metadata to order data according to sheet structure
 4. **Google Sheets API**: Uses `append` method to add row to end of sheet
 5. **Response**: Returns success with updated range information
 
@@ -137,8 +144,9 @@ Where `data` is an object with key-value pairs representing the row data. The AP
 1. **Authentication & Validation**: Same as append mode
 2. **Row Search**: Queries the specified ID column to find matching row
 3. **Row Location**: Identifies the exact row number containing the ID
-4. **Data Update**: Uses `update` method to overwrite the specific row
-5. **Response**: Returns success with target row and update details
+4. **Column Mapping**: Uses metadata to maintain proper column order during update
+5. **Data Update**: Uses `update` method to overwrite the specific row
+6. **Response**: Returns success with target row and update details
 
 ### Error Handling
 - **Authentication failures**: Token refresh or reconnection required
@@ -160,9 +168,14 @@ const appendData = async (sheetId, rowData) => {
       },
       body: JSON.stringify({
         data: {
-          name: 'John Doe',
-          age: '30',
-          email: 'john@example.com'
+          "row type": "job",
+          "job id": "job-123",
+          "job title": "Software Developer",
+          "job description": "Build amazing apps",
+          "full name": "",        // Empty fields are preserved in correct columns
+          "email": "",
+          "phone number": "",
+          "active": true
         }
       })
     });
@@ -292,3 +305,46 @@ The API includes comprehensive error handling for:
 - **Google Sheets API errors**: Detailed error messages from Google
 
 Each error response includes a descriptive message and, when appropriate, an action field indicating what the client should do (e.g., "reconnect" for authentication issues).
+
+## Column Structure & Metadata
+
+The API uses the `columns_metadata` field from the `google_sheets_connections` table to maintain proper column structure. This metadata contains:
+
+- **Column names**: Exact field names as they appear in the sheet
+- **Original index**: The position of each column in the sheet (0-based)
+- **Field types**: Text, Email, Date, Boolean, etc.
+- **Active status**: Whether the field is visible to users
+
+### Example Metadata Structure
+
+```json
+[
+  {
+    "id": "custom-col-00",
+    "name": "row type",
+    "type": "Dropdown",
+    "active": false,
+    "options": ["job", "applicant"],
+    "description": "Defines the type of row",
+    "originalIndex": 0
+  },
+  {
+    "id": "custom-col-01", 
+    "name": "job id",
+    "type": "Text",
+    "active": false,
+    "options": [],
+    "description": "unique job ID",
+    "originalIndex": 1
+  }
+]
+```
+
+### Field Mapping Process
+
+1. **Sort by originalIndex**: Columns are ordered according to their position in the sheet
+2. **Exact name matching**: Field names are matched exactly first
+3. **Case-insensitive fallback**: If exact match fails, tries case-insensitive matching
+4. **Empty value handling**: Missing or null values become empty strings in correct positions
+
+This ensures that data sent with any field order will be correctly positioned in the sheet according to the original column structure.
