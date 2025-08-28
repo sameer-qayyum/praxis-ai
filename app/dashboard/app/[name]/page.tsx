@@ -316,6 +316,37 @@ const AppPage = () => {
     }
   }, [app?.id, app?.chat_id])
 
+  // Function to poll app completion status from our database
+  const pollAppCompletion = async (appId: string): Promise<any> => {
+    const maxAttempts = 240; // 15 minutes with 5-second intervals
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        
+        // Refetch app data to check status
+        await refetchApp();
+        
+        // Check if app generation is complete
+        if (app && app.status === 'generated' && app.preview_url) {
+          return { success: true, demo: app.preview_url };
+        } else if (app && app.status === 'failed') {
+          throw new Error('App generation failed');
+        }
+        
+        
+        
+        // Wait 5 seconds before next attempt
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } catch (error) {
+        console.error(`❌ App polling error on attempt ${attempts}:`, error);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+    throw new Error('App generation timed out after 15 minutes');
+  };
+
   const generateAppMutation = useMutation({
     mutationFn: async () => {
       
@@ -330,12 +361,6 @@ const AppPage = () => {
         return { success: true, message: 'App already has chat_id, no generation needed' };
       }
       try {
-        console.log('🔍 [APP GENERATION] Checking app type:', {
-          appId: app.id,
-          hasTemplateId: !!app.template_id,
-          templateId: app.template_id,
-          appType: app.template_id ? 'TEMPLATE' : 'CUSTOM'
-        })
 
         // 3. Get template data only if this is a template-based app
         let templateData = null
@@ -485,27 +510,26 @@ ${app.active_fields_text || ''}
         })
 
         if (!generateResponse.ok) {
-          const errorData = await generateResponse.json()
-          throw new Error(errorData.error || 'Failed to generate app')
+          throw new Error(`Generate API failed: ${generateResponse.status}`)
         }
-
+        
         const generateData = await generateResponse.json()
-
-        // Refetch app data to get updated record
-        await refetchApp()
-        return generateData
+        
+        if (generateData.status === 'generating') {
+          // Start polling for completion using app status
+          return await pollAppCompletion(generateData.appId)
+        } else {
+          // Fallback for immediate response
+          await refetchApp()
+          return generateData
+        }
       } catch (error) {
         console.error('Generation API error:', error);
-        // We don't set isGenerating=false here because it's handled in the onError callback
         throw error; // Re-throw to trigger onError
       }
     },
-    // These callbacks are no longer needed since we're handling them in the useEffect
-    // where we call the mutation - keeping for reference
     onError: (error: any) => {
       console.error('App generation error:', error);
-      // Toast handling moved to the useEffect
-      console.error("Error generating app:", error)
     }
   })
 

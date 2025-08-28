@@ -244,7 +244,7 @@ export const PreviewPanel = ({
         </div>
 
         <TabsContent value="preview" className="flex-1 m-0 p-0 overflow-hidden h-full relative min-h-0">
-          {isGenerating || app.status === 'pending' ? (
+          {isGenerating || app.status === 'pending' || app.status === 'generating' ? (
             <div className="h-full flex items-center justify-center">
               <div className="text-center p-4">
                 <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg mx-auto mb-3 flex items-center justify-center">

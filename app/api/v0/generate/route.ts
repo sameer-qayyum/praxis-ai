@@ -51,131 +51,126 @@ export async function POST(request: NextRequest) {
     }
     
     try {
-      // Create a new chat with the v0 SDK using enhanced parameters
-      const chat = await v0.chats.create({ 
-        message,
-        system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
-        chatPrivacy: "private",
-        modelConfiguration: {
-          modelId: "v0-1.5-md", // Use the largest model for better results
-          thinking: true, // Enable thinking for better reasoning
-          imageGenerations: false
-        }
-      });
+      // Since V0 doesn't support true async, we'll use a fire-and-forget approach
+      // Start the generation in the background and return immediately
       
-      if (chat.id) {
-        // Store the chat and project reference in the database with the user ID to satisfy RLS
-        let appData, dbError;
-        
-        if (appId) {
-          // If we have an appId, use direct update to modify the existing record
-          
-          const updateData = {
-            chat_id: chat.id,
-            status: 'generated',
-            preview_url: chat.demo,
+      // First, create a placeholder app record to get an ID for tracking
+      const placeholderData = {
+        name: name || 'Praxis AI App',
+        status: 'generating',
+        preview_url: null,
+        created_by: userId,
+        updated_by: userId,
+        template_id: templateId || null,
+        user_prompt: templateId ? null : message // Store user prompt for custom apps
+      };
+
+      let appData;
+      if (appId) {
+        // Update existing app
+        const result = await supabase
+          .from('apps')
+          .update({
+            status: 'generating',
+            preview_url: null,
             updated_by: userId,
             updated_at: new Date().toISOString()
-          };
-          
-          // Update the existing record
-          const result = await supabase
-            .from('apps')
-            .update(updateData)
-            .eq('id', appId)
-            .select('id')
-            .single();
-            
-          appData = result.data;
-          dbError = result.error;
-        } else {
-          
-          const insertData = {
-            chat_id: chat.id,
-            name: name || 'Praxis AI App',
-            status: 'generated',
-            preview_url: chat.demo,
-            created_by: userId,
-            updated_by: userId
-          };
-          
-          // Insert a new record
-          const result = await supabase
-            .from('apps')
-            .insert(insertData)
-            .select('id')
-            .single();
-            
-          appData = result.data;
-          dbError = result.error;
-        }
-        
-        if (dbError) {
-          console.error('Error storing v0 project reference:', dbError);
-          // Continue even if database storage fails
-        }
-        
-        // Insert into app_versions table
-        // Get version ID from latestVersion
-        let versionId = null;
-        let versionDemoUrl = chat.demo || null;
-        
-        if (chat.latestVersion) {
-          versionId = chat.latestVersion.id || null;
-          // Use latestVersion.demoUrl if available
-          versionDemoUrl = chat.latestVersion.demoUrl || versionDemoUrl;
-        }
-        
-        if (appData && versionId) {
-          // Insert into app_versions table
-          const { error: versionError } = await supabase
-            .from('app_versions')
-            .insert({
-              app_id: appData.id,
-              version_id: versionId,
-              created_by: userId,
-              version_demo_url: versionDemoUrl,
-              version_number: 1 // First version
-            });
-          
-          if (versionError) {
-            console.error('Error storing version reference:', versionError);
-            // Continue even if version storage fails
-          }
-        }
+          })
+          .eq('id', appId)
+          .select('id')
+          .single();
+        appData = result.data;
+      } else {
+        // Create new app
+        const result = await supabase
+          .from('apps')
+          .insert(placeholderData)
+          .select('id')
+          .single();
+        appData = result.data;
       }
-    
-      // Extract file information safely from the SDK response
-      const files: FileMapping[] = [];
-      
-      if (chat.files && Array.isArray(chat.files)) {
-        chat.files.forEach((file: any) => {
-          // Handle different file structures that might come from v0
-          // Cast to our helper type to safely access properties
-          const v0File = file as V0File;
-          
-          // Try multiple possible path locations in the file object
-          const fileName = v0File.name || 
-                         (v0File.meta && v0File.meta.file) || 
-                         '';
-                         
-          if (fileName) {
-            files.push({
-              path: fileName,
-              language: getLanguageFromPath(fileName)
-            });
-          }
-        });
+
+      if (!appData) {
+        throw new Error('Failed to create app record');
       }
-      
-      // Return the response data including chat ID, project ID, and files
+
+      // Start V0 generation in background (fire and forget)
+      // We'll use setTimeout to avoid blocking the response
+      setTimeout(async () => {
+        try {
+          console.log(`🚀 Starting background V0 generation for app ${appData.id}`);
+          
+          const response = await fetch('https://api.v0.dev/v1/chats', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message,
+              system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
+              modelConfiguration: {
+                modelId: "v0-1.5-md",
+                thinking: true,
+                imageGenerations: false
+              }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`V0 API error: ${response.status} ${response.statusText}`);
+          }
+
+          const chat = await response.json();
+          
+          console.log(`✅ V0 generation completed for app ${appData.id}, chat: ${chat.id}`);
+          
+          // Update the app with completed data
+          await supabase
+            .from('apps')
+            .update({
+              chat_id: chat.id,
+              status: 'generated',
+              preview_url: chat.demo,
+              updated_by: userId,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', appData.id);
+
+          // Store version data if available
+          if (chat.latestVersion) {
+            await supabase
+              .from('app_versions')
+              .insert({
+                app_id: appData.id,
+                version_id: chat.latestVersion.id,
+                created_by: userId,
+                version_demo_url: chat.latestVersion.demoUrl || chat.demo,
+                version_number: 1
+              });
+          }
+
+        } catch (error) {
+          console.error(`❌ Background V0 generation failed for app ${appData.id}:`, error);
+          
+          // Update app status to failed
+          await supabase
+            .from('apps')
+            .update({
+              status: 'failed',
+              updated_by: userId,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', appData.id);
+        }
+      }, 100); // Start after 100ms to ensure response is sent first
+
+      // Return immediately with app ID for frontend polling
       return NextResponse.json({ 
         success: true, 
-        chatId: chat.id,
-        projectId: chat.projectId,
-        demo: chat.demo,
-        files: files,
-        messages: chat.messages || []
+        appId: appData.id,
+        status: 'generating',
+        message: 'Generation started in background. Check app status for completion.'
       });
     
     } catch (sdkError: any) {
