@@ -27,6 +27,8 @@ import {
   Settings,
   Clock,
   TrendingUp,
+  BriefcaseBusiness,
+  Calculator,
 } from "lucide-react"
 
 // Icon mapping to use with dynamic icon names from the database
@@ -39,11 +41,14 @@ const iconMapping: Record<string, React.ElementType> = {
   TrendingUp,
   Settings,
   Upload,
+  BriefcaseBusiness,
+  Calculator,
   // Map database values that don't have exact Lucide equivalents
   Workflow: GitBranch,
   FolderOpen: Folder,
   // Fallback for any missing icons
   default: Settings,
+  
 }
 
 // Template type definition matching our database schema
@@ -205,7 +210,7 @@ export default function Dashboard() {
                     <CardHeader className="pb-4">
                       <div className="flex items-start justify-between mb-3">
                         <div
-                          className={`p-3 rounded-xl ${template.color} text-white group-hover:scale-110 transition-transform duration-300`}
+                          className={`p-3 rounded-xl ${template.color || 'bg-gray-500'} text-white group-hover:scale-110 transition-transform duration-300`}
                         >
                           <IconComponent className="h-6 w-6" />
                         </div>
