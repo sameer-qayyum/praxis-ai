@@ -100,28 +100,16 @@ export async function POST(request: NextRequest) {
         try {
           console.log(`🚀 Starting background V0 generation for app ${appData.id}`);
           
-          const response = await fetch('https://api.v0.dev/v1/chats', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              message,
-              system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
-              modelConfiguration: {
-                modelId: "v0-1.5-md",
-                thinking: true,
-                imageGenerations: false
-              }
-            })
+          const chat = await v0.chats.create({ 
+            message,
+            system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
+            chatPrivacy: "private",
+            modelConfiguration: {
+              modelId: "v0-1.5-md", // Use the largest model for better results
+              thinking: true, // Enable thinking for better reasoning
+              imageGenerations: false
+            }
           });
-
-          if (!response.ok) {
-            throw new Error(`V0 API error: ${response.status} ${response.statusText}`);
-          }
-
-          const chat = await response.json();
           
           console.log(`✅ V0 generation completed for app ${appData.id}, chat: ${chat.id}`);
           

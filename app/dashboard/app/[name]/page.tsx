@@ -536,6 +536,15 @@ ${app.active_fields_text || ''}
   // CRITICAL: This is the main effect that triggers app generation on first load
   // It runs once when the component mounts with app data
   useEffect(() => {
+    console.log('🔍 Generation useEffect triggered:', {
+      hasApp: !!app,
+      appId: app?.id,
+      chatId: app?.chat_id,
+      hasAttemptedGeneration,
+      isLoadingApp,
+      mutationPending: generateAppMutation.isPending
+    });
+    
     // We need this check because the effect might run before app data is available
     if (!app) {
       console.log('🚫 App data not yet available, waiting...');
@@ -548,11 +557,12 @@ ${app.active_fields_text || ''}
       return;
     }
 
-    // Mark that we've attempted generation to prevent further attempts
-    setHasAttemptedGeneration(true);
-    
     // If we have an app without chat_id, generate it
     if (app.id && !app.chat_id) {
+      console.log('🚀 Starting app generation for:', app.id);
+      
+      // Mark that we've attempted generation to prevent further attempts
+      setHasAttemptedGeneration(true);
       
       // Set UI state
       setIsGenerating(true);
@@ -561,8 +571,10 @@ ${app.active_fields_text || ''}
       const toastId = toast.loading("Generating your app with V0...");
       
       // Call the mutation directly
+      console.log('🔥 Calling generateAppMutation.mutate()');
       generateAppMutation.mutate(undefined, {
         onSuccess: (data) => {
+          console.log('✅ Mutation onSuccess called:', data);
           toast.dismiss(toastId);
           toast.success("App successfully generated!");
           
@@ -581,7 +593,11 @@ ${app.active_fields_text || ''}
         }
       });
     } else {
-      console.log('✅ App already has chat_id or not ready for generation');
+      console.log('✅ App already has chat_id or not ready for generation:', {
+        hasId: !!app.id,
+        hasChatId: !!app.chat_id,
+        appStatus: app.status
+      });
     }
   }, [app?.id, app?.chat_id]); // Only depend on critical app properties
   
