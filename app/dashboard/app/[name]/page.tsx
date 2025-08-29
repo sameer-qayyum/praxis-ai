@@ -514,11 +514,9 @@ ${app.active_fields_text || ''}
     }
   })
 
-  // CRITICAL: This is the main effect that triggers app generation on first load
-  // It runs once when the component mounts with app data
+  // Single effect to handle all generation logic
   useEffect(() => {
-    // We need this check because the effect might run before app data is available
-    if (!app) {
+    if (!app?.id) {
       console.log('🚫 App data not yet available, waiting...');
       return;
     }
@@ -532,33 +530,18 @@ ${app.active_fields_text || ''}
     // Mark that we've attempted generation to prevent further attempts
     setHasAttemptedGeneration(true);
     
-    // If we have an app without chat_id, generate it
-    if (app.id && !app.chat_id) {
-      
-      // Set UI state
+    // CASE 1: No chat_id - Start new generation
+    if (!app.chat_id) {
+      console.log('🚀 Starting new generation for app without chat_id');
       setIsGenerating(true);
       
-      // Show toast with unique ID so we can dismiss it later
       const toastId = toast.loading("Generating your app with V0...");
       
-      // Call the mutation directly
       generateAppMutation.mutate(undefined, {
         onSuccess: (data) => {
           toast.dismiss(toastId);
-          
-          if (data.needsPolling) {
-            // Show generation started message
-            toast.success("Generation started! This may take several minutes.");
-            
-            // Start polling for completion
-            startPollingForCompletion(data.appId);
-          } else {
-            // Fallback for immediate completion (shouldn't happen with new API)
-            toast.success("App successfully generated!");
-            refetchApp().then(() => {
-              setTimeout(() => refetchChat(), 500);
-            });
-          }
+          toast.success("Generation started! This may take several minutes.");
+          startPollingForCompletion(data.appId);
         },
         onError: (error) => {
           console.error('❌ Generation failed:', error);
@@ -567,14 +550,27 @@ ${app.active_fields_text || ''}
           setIsGenerating(false);
         }
       });
-    } else {
-      console.log('✅ App already has chat_id or not ready for generation');
     }
-  }, [app?.id, app?.chat_id]); // Only depend on critical app properties
+    // CASE 2: Has chat_id and status is 'generating' - Resume polling
+    else if (app.chat_id && app.status === 'generating') {
+      console.log('🔄 Resuming polling for ongoing generation');
+      setIsGenerating(true);
+      startPollingForCompletion(app.id);
+    }
+    // CASE 3: Has chat_id and status is 'generated' - Set UI state
+    else if (app.chat_id && app.status === 'generated') {
+      console.log('✅ App already generated');
+      setIsGenerating(false);
+    }
+    // CASE 4: Has chat_id and status is 'failed' - Set UI state
+    else if (app.chat_id && app.status === 'failed') {
+      console.log('❌ App generation failed');
+      setIsGenerating(false);
+    }
+    
+  }, [app?.id, app?.chat_id, app?.status, hasAttemptedGeneration, isLoadingApp, generateAppMutation.isPending]);
   
   // Fetch chat messages when we have a chat_id
-  // When coming from the wizard flow with a freshly generated chat, this will run after generation
-  // When coming to an existing app page, this will run on load
   const {
     data: chatData,
     isLoading: isLoadingChat,
@@ -587,7 +583,6 @@ ${app.active_fields_text || ''}
         return [];
       }
 
-      // Use the getchat API route which uses v0.chats.getById
       const response = await fetch(`/api/v0/getchat?chatId=${app.chat_id}`, {
         method: "GET",
         headers: {
@@ -604,16 +599,16 @@ ${app.active_fields_text || ''}
       const data = await response.json();
       return data.messages || []
     },
-    enabled: !!app?.chat_id, // Enabled whenever we have a chat_id
+    enabled: !!app?.chat_id && app?.status === 'generated', // Only fetch when generated
   })
   
   // Polling function to check V0 generation completion
   const startPollingForCompletion = useCallback(async (appId: string) => {
     const pollInterval = 5000; // Poll every 5 seconds
-    const maxAttempts = 120; // Max 10 minutes (120 * 5 seconds)
+    const maxAttempts = 220; // Max ~18 minutes
     let attempts = 0;
     
-    // First get the app data to get chat_id
+    // Get current app data to get chat_id
     const appResult = await refetchApp();
     const currentApp = appResult.data;
     
@@ -625,21 +620,38 @@ ${app.active_fields_text || ''}
     
     const poll = async () => {
       attempts++;
+      console.log(`🔍 [POLL ${attempts}/${maxAttempts}] Checking V0 status for chat: ${currentApp.chat_id}`);
       
       try {
         // Poll V0 directly using chat ID
         const response = await fetch(`/api/v0/getchat?chatId=${currentApp.chat_id}`);
         
         if (!response.ok) {
+          console.error(`❌ [POLL ${attempts}] Failed to fetch V0 status: ${response.status} ${response.statusText}`);
           throw new Error('Failed to check V0 status');
         }
         
         const chatData = await response.json();
         
-        // Check if V0 generation is complete
-        if (chatData.demo && chatData.messages && chatData.messages.length > 0) {
-          // Generation completed - call complete route
-          console.log('🎉 V0 generation completed, calling complete route...');
+        // Log current V0 status for debugging
+        console.log(`📊 [POLL ${attempts}] V0 Status:`, {
+          hasDemo: !!chatData.demo,
+          demoUrl: chatData.demo || 'null',
+          hasMessages: !!chatData.messages,
+          messageCount: chatData.messages?.length || 0,
+          hasLatestVersion: !!chatData.latestVersion,
+          versionId: chatData.latestVersion?.id || 'null',
+          chatStatus: chatData.status || 'unknown'
+        });
+        
+        // Success criteria: Must have demo URL AND at least one message
+        const isComplete = chatData.demo && chatData.messages && chatData.messages.length > 0;
+        
+        if (isComplete) {
+          console.log('🎉 [POLL SUCCESS] V0 generation completed! Criteria met:');
+          console.log('  ✅ Demo URL:', chatData.demo);
+          console.log('  ✅ Messages:', chatData.messages.length);
+          console.log('  ✅ Version ID:', chatData.latestVersion?.id || 'none');
           
           const completeResponse = await fetch('/api/v0/complete', {
             method: 'POST',
@@ -656,8 +668,6 @@ ${app.active_fields_text || ''}
           if (completeResponse.ok) {
             toast.success("App successfully generated!");
             setIsGenerating(false);
-            
-            // Refetch app data and chat messages
             await refetchApp();
             setTimeout(() => refetchChat(), 500);
           } else {
@@ -665,13 +675,11 @@ ${app.active_fields_text || ''}
           }
           return;
         } else if (attempts >= maxAttempts) {
-          // Timeout
           toast.error("Generation is taking longer than expected. Please refresh the page to check status.");
           setIsGenerating(false);
           return;
         }
         
-        // Continue polling if still generating
         console.log(`🔄 V0 still generating... (attempt ${attempts}/${maxAttempts})`);
         setTimeout(poll, pollInterval);
         
@@ -686,26 +694,8 @@ ${app.active_fields_text || ''}
       }
     };
     
-    // Start polling
     setTimeout(poll, pollInterval);
   }, [refetchApp, refetchChat, toast]);
-  
-  // Auto-detect if app is currently generating and set UI state accordingly
-  useEffect(() => {
-    if (app?.status === 'generating') {
-      setIsGenerating(true);
-      
-      // Only start polling if we haven't attempted generation in this session
-      // This handles page refreshes during ongoing generation
-      if (!hasAttemptedGeneration && !generateAppMutation.isPending) {
-        console.log('🔄 Detected ongoing generation on page load, resuming polling...');
-        setHasAttemptedGeneration(true);
-        startPollingForCompletion(app.id);
-      }
-    } else if (app?.status === 'generated' || app?.status === 'failed') {
-      setIsGenerating(false);
-    }
-  }, [app?.status, app?.id, hasAttemptedGeneration, startPollingForCompletion, generateAppMutation.isPending]);
 
   // Send message mutation
   const sendMessageMutation = useMutation({
