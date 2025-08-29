@@ -286,6 +286,7 @@ const AppPage = () => {
 
   // Check if app needs generation
   const [isGenerating, setIsGenerating] = useState(false)
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
   
   
   // Log app data on first load and trigger chat message fetch if we have a chat_id
@@ -564,6 +565,17 @@ ${app.active_fields_text || ''}
     }
     
   }, [app?.id, app?.chat_id, app?.status, isLoadingApp, generateAppMutation.isPending]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        console.log('🧹 Cleaning up polling on unmount');
+        clearTimeout(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, []);
   
   // Fetch chat messages when we have a chat_id
   const {
@@ -599,6 +611,13 @@ ${app.active_fields_text || ''}
   
   // Polling function to check V0 generation completion
   const startPollingForCompletion = useCallback(async (appId: string) => {
+    // Clear any existing polling
+    if (pollingRef.current) {
+      console.log('🛑 Clearing existing polling interval');
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    
     const pollInterval = 5000; // Poll every 5 seconds
     const maxAttempts = 220; // Max ~18 minutes
     let attempts = 0;
@@ -612,6 +631,8 @@ ${app.active_fields_text || ''}
       setIsGenerating(false);
       return;
     }
+    
+    console.log(`🎯 Starting polling for app ${appId} with chat_id: ${currentApp.chat_id}`);
     
     const poll = async () => {
       attempts++;
@@ -676,7 +697,7 @@ ${app.active_fields_text || ''}
         }
         
         console.log(`🔄 V0 still generating... (attempt ${attempts}/${maxAttempts})`);
-        setTimeout(poll, pollInterval);
+        pollingRef.current = setTimeout(poll, pollInterval);
         
       } catch (error) {
         console.error('Polling error:', error);
@@ -684,12 +705,12 @@ ${app.active_fields_text || ''}
           toast.error("Unable to check generation status. Please refresh the page.");
           setIsGenerating(false);
         } else {
-          setTimeout(poll, pollInterval);
+          pollingRef.current = setTimeout(poll, pollInterval);
         }
       }
     };
     
-    setTimeout(poll, pollInterval);
+    pollingRef.current = setTimeout(poll, pollInterval);
   }, [refetchApp, refetchChat, toast]);
 
   // Send message mutation
