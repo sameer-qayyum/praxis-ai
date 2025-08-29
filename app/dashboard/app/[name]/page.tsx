@@ -605,9 +605,10 @@ ${app.active_fields_text || ''}
       }
 
       const data = await response.json();
-      return data.messages || []
+      console.log('🔍 [CHAT QUERY] Full response from getchat API:', data);
+      return data // Return the full response object, not just messages
     },
-    enabled: !!app?.chat_id && app?.status === 'generated', // Only fetch when generated
+    enabled: !!app?.chat_id, // Fetch whenever we have a chat_id
     retry: false, // Don't retry on error to prevent infinite loops
     refetchOnWindowFocus: false, // Don't refetch on window focus
   })
@@ -861,6 +862,8 @@ ${app.active_fields_text || ''}
                         null;
                       
         if (demoUrl && app && app.preview_url !== demoUrl) {
+          console.log('🔄 [PREVIEW UPDATE] Updating preview URL and forcing refresh:', { from: app.preview_url, to: demoUrl });
+          
           // Update app data in the cache with the new preview_url
           const updatedApp = {
             ...app,
@@ -869,6 +872,10 @@ ${app.active_fields_text || ''}
           
           // Update the app data in the React Query cache
           queryClient.setQueryData(["app", name], updatedApp);
+          
+          // Force preview refresh by updating the preview key
+          setPreviewKey(Date.now());
+          console.log('🔄 [PREVIEW UPDATE] Preview key updated to force iframe refresh');
         }
       }
       
