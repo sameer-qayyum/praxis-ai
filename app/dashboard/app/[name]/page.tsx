@@ -598,7 +598,7 @@ ${app.active_fields_text || ''}
     queryFn: async () => {
       if (!app?.chat_id) {
         console.error('No chat_id available - this should not happen due to enabled property');
-        return [];
+        throw new Error('No chat_id available');
       }
 
       const response = await fetch(`/api/v0/getchat?chatId=${app.chat_id}`, {
@@ -618,6 +618,8 @@ ${app.active_fields_text || ''}
       return data.messages || []
     },
     enabled: !!app?.chat_id && app?.status === 'generated', // Only fetch when generated
+    retry: false, // Don't retry on error to prevent infinite loops
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   })
   
   // Polling function to check V0 generation completion
