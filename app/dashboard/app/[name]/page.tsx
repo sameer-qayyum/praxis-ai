@@ -287,6 +287,7 @@ const AppPage = () => {
   // Check if app needs generation
   const [isGenerating, setIsGenerating] = useState(false)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const generateAttemptedRef = useRef<string | null>(null) // Track which app we've attempted generation for
   
   
   // Log app data on first load and trigger chat message fetch if we have a chat_id
@@ -535,8 +536,10 @@ ${app.active_fields_text || ''}
     }
     
     // CASE 1: No chat_id - Start new generation
-    if (!app.chat_id && !isGenerating) {
+    if (!app.chat_id && !isGenerating && generateAttemptedRef.current !== app.id) {
       console.log('🚀 Starting new generation for app without chat_id');
+      console.log('🔥 CALLING GENERATE API MUTATION NOW');
+      generateAttemptedRef.current = app.id; // Mark this app as attempted
       setIsGenerating(true);
       
       const toastId = toast.loading("Generating your app with V0...");

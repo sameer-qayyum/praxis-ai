@@ -55,11 +55,13 @@ export async function GET(request: NextRequest) {
       files: message.files || []
     }));
 
-    // Return the formatted messages
+    // Return the complete chat data including demo URLs
     return NextResponse.json({ 
       success: true,
       chatId: chatId,
-      messages: messages
+      messages: messages,
+      demo: chatData.demo || null, // Root level demo URL
+      latestVersion: chatData.latestVersion || null // Includes demoUrl
     });
     
   } catch (error: any) {
