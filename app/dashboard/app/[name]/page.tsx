@@ -515,6 +515,14 @@ ${app.active_fields_text || ''}
 
   // Single effect to handle all generation logic
   useEffect(() => {
+    console.log('🔄 useEffect triggered with app data:', {
+      appId: app?.id,
+      chatId: app?.chat_id,
+      status: app?.status,
+      isLoadingApp,
+      isPending: generateAppMutation.isPending
+    });
+    
     if (!app?.id) {
       console.log('🚫 App data not yet available, waiting...');
       return;
@@ -623,10 +631,19 @@ ${app.active_fields_text || ''}
     let attempts = 0;
     
     // Get current app data to get chat_id
+    console.log(`🔍 Fetching fresh app data for appId: ${appId}`);
     const appResult = await refetchApp();
     const currentApp = appResult.data;
     
+    console.log(`📋 App data received:`, {
+      appId: currentApp?.id,
+      chatId: currentApp?.chat_id,
+      status: currentApp?.status,
+      name: currentApp?.name
+    });
+    
     if (!currentApp?.chat_id) {
+      console.error(`❌ No chat_id found for app ${appId}. App data:`, currentApp);
       toast.error("No chat ID found. Please try again.");
       setIsGenerating(false);
       return;
