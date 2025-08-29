@@ -46,6 +46,15 @@ export async function GET(request: NextRequest) {
       chatId
     });
     
+    console.log('🔍 [GETCHAT API] Raw V0 response for chat:', chatId, {
+      hasDemo: !!chatData.demo,
+      demoUrl: chatData.demo || 'null',
+      hasLatestVersion: !!chatData.latestVersion,
+      latestVersionDemoUrl: chatData.latestVersion?.demoUrl || 'null',
+      messageCount: chatData.messages?.length || 0,
+      chatDataKeys: Object.keys(chatData)
+    });
+    
     // Format messages for the client
     const messages = chatData.messages.map((message: any) => ({
       id: message.id,
@@ -55,14 +64,25 @@ export async function GET(request: NextRequest) {
       files: message.files || []
     }));
 
-    // Return the complete chat data including demo URLs
-    return NextResponse.json({ 
+    const responseData = { 
       success: true,
       chatId: chatId,
       messages: chatData.messages || [],
       demo: chatData.demo || null, // Root level demo URL
       latestVersion: chatData.latestVersion || null // Includes demoUrl
+    };
+
+    console.log('📤 [GETCHAT API] Sending response:', {
+      chatId: responseData.chatId,
+      messageCount: responseData.messages.length,
+      hasDemo: !!responseData.demo,
+      demoUrl: responseData.demo,
+      hasLatestVersion: !!responseData.latestVersion,
+      latestVersionDemoUrl: responseData.latestVersion?.demoUrl || null
     });
+
+    // Return the complete chat data including demo URLs
+    return NextResponse.json(responseData);
     
   } catch (error: any) {
     console.error('Error fetching chat messages:', error);

@@ -84,8 +84,17 @@ export const PreviewPanel = ({
   const [currentPreviewUrl, setCurrentPreviewUrl] = useState(app?.preview_url || '');
   
   // Combine local preview key and external preview key to force refresh in both scenarios
-  const combinedPreviewKey = externalPreviewKey ? `${localPreviewKey}-${externalPreviewKey}` : `${localPreviewKey}`;
-  
+  const combinedPreviewKey = Math.max(localPreviewKey, externalPreviewKey || 0);
+
+  // Log iframe URL loading
+  console.log('🖼️ [IFRAME] Loading URL:', {
+    url: `${currentPreviewUrl}?timestamp=${combinedPreviewKey}`,
+    currentPreviewUrl,
+    combinedPreviewKey,
+    viewport,
+    selectedVersion
+  });
+
   // Log app information for debugging
   useEffect(() => {
     if (!app?.id) {
@@ -143,10 +152,22 @@ export const PreviewPanel = ({
   // Force iframe refresh when preview_url changes
   useEffect(() => {
     if (app?.preview_url) {
+      console.log('🖼️ [IFRAME] Preview URL changed, forcing refresh:', {
+        newUrl: app.preview_url,
+        appId: app.id,
+        timestamp: Date.now()
+      });
+      setLocalPreviewKey(Date.now());
+    }
+  }, [app?.preview_url]);
+
+  // Force iframe refresh when external preview key changes
+  useEffect(() => {
+    if (externalPreviewKey) {
       setLocalPreviewKey(Date.now());
       setCurrentPreviewUrl(app.preview_url);
     }
-  }, [app?.preview_url, externalPreviewKey]);
+  }, [externalPreviewKey, app.preview_url]);
   
   // Auto-select newest version when versions change
   useEffect(() => {

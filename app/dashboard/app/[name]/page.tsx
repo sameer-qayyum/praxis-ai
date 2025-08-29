@@ -693,6 +693,8 @@ ${app.active_fields_text || ''}
           versionId: chatData.latestVersion?.id || 'null',
           chatStatus: chatData.status || 'unknown'
         });
+
+        console.log(`📋 [POLL ${attempts}] Full getchat response:`, chatData);
         
         // Success criteria: Must have demo URL AND at least one message
         const isComplete = chatData.demo && chatData.messages && chatData.messages.length > 0;
@@ -1042,6 +1044,26 @@ ${app.active_fields_text || ''}
   if (appError || !app) {
     return notFound()
   }
+
+  // Log data being passed to components
+  console.log('💬 [CHAT PANEL] Props passed:', {
+    messageCount: messages.length,
+    isLoadingChat,
+    appId: app?.id,
+    chatId: app?.chat_id,
+    hasApp: !!app,
+    messagesPreview: messages.slice(0, 2).map(m => ({ role: m.role, contentLength: m.content.length }))
+  });
+
+  console.log('🖼️ [PREVIEW PANEL] Props passed:', {
+    appId: app?.id,
+    chatId: app?.chat_id,
+    hasApp: !!app,
+    activeTab,
+    messageCount: messages.length,
+    selectedVersion,
+    previewKey
+  });
 
   return (
     <div className="h-[calc(100vh-56px)] flex flex-col bg-white dark:bg-slate-900 relative overflow-hidden">
