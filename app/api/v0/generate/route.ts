@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from '@/lib/supabase/server';
 import { v0 } from "v0-sdk";
+import { waitUntil } from '@vercel/functions';
 
 // Type for file mapping to handle v0 SDK types safely
 type FileMapping = {
@@ -40,8 +41,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
     
-    // Configure the v0 SDK with API key
-    // The v0-sdk is already initialized upon import, we just need to use it
     // Validate
     if (!message) {
       return NextResponse.json(
@@ -49,133 +48,140 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Create or update app record with 'generating' status
+    let currentAppId = appId;
     
-    try {
-      // Since V0 doesn't support true async, we'll use a fire-and-forget approach
-      // Start the generation in the background and return immediately
+    if (appId) {
+      // Update existing app to generating status
+      await supabase
+        .from('apps')
+        .update({
+          status: 'generating',
+          updated_by: userId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', appId);
+    } else {
+      // Create new app with generating status
+      const { data: newApp } = await supabase
+        .from('apps')
+        .insert({
+          name: name || 'Praxis AI App',
+          status: 'generating',
+          created_by: userId,
+          updated_by: userId
+        })
+        .select('id')
+        .single();
       
-      // First, create a placeholder app record to get an ID for tracking
-      const placeholderData = {
-        name: name || 'Praxis AI App',
-        status: 'generating',
-        preview_url: null,
-        created_by: userId,
-        updated_by: userId,
-        template_id: templateId || null,
-        user_prompt: templateId ? null : message // Store user prompt for custom apps
-      };
-
-      let appData;
-      if (appId) {
-        // Update existing app
-        const result = await supabase
-          .from('apps')
-          .update({
-            status: 'generating',
-            preview_url: null,
-            updated_by: userId,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', appId)
-          .select('id')
-          .single();
-        appData = result.data;
-      } else {
-        // Create new app
-        const result = await supabase
-          .from('apps')
-          .insert(placeholderData)
-          .select('id')
-          .single();
-        appData = result.data;
-      }
-
-      if (!appData) {
-        throw new Error('Failed to create app record');
-      }
-
-      // Start V0 generation in background (fire and forget)
-      // We'll use setTimeout to avoid blocking the response
-      setTimeout(async () => {
-        try {
-          console.log(`🚀 Starting background V0 generation for app ${appData.id}`);
-          
-          const chat = await v0.chats.create({ 
-            message,
-            system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
-            chatPrivacy: "private",
-            modelConfiguration: {
-              modelId: "v0-1.5-md", // Use the largest model for better results
-              thinking: true, // Enable thinking for better reasoning
-              imageGenerations: false
-            }
-          });
-          
-          console.log(`✅ V0 generation completed for app ${appData.id}, chat: ${chat.id}`);
-          
-          // Update the app with completed data
-          await supabase
-            .from('apps')
-            .update({
-              chat_id: chat.id,
-              status: 'generated',
-              preview_url: chat.demo,
-              updated_by: userId,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', appData.id);
-
-          // Store version data if available
-          if (chat.latestVersion) {
-            await supabase
-              .from('app_versions')
-              .insert({
-                app_id: appData.id,
-                version_id: chat.latestVersion.id,
-                created_by: userId,
-                version_demo_url: chat.latestVersion.demoUrl || chat.demo,
-                version_number: 1
-              });
-          }
-
-        } catch (error) {
-          console.error(`❌ Background V0 generation failed for app ${appData.id}:`, error);
-          
-          // Update app status to failed
-          await supabase
-            .from('apps')
-            .update({
-              status: 'failed',
-              updated_by: userId,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', appData.id);
-        }
-      }, 100); // Start after 100ms to ensure response is sent first
-
-      // Return immediately with app ID for frontend polling
-      return NextResponse.json({ 
-        success: true, 
-        appId: appData.id,
-        status: 'generating',
-        message: 'Generation started in background. Check app status for completion.'
-      });
-    
-    } catch (sdkError: any) {
-      console.error('DEBUG - V0 SDK Error:', sdkError);
-      return NextResponse.json(
-        { error: `V0 SDK Error: ${sdkError.message || 'Unknown SDK error'}` },
-        { status: 500 }
-      );
+      currentAppId = newApp?.id;
     }
+
+    // Start V0 generation in background
+    waitUntil(processV0Generation(message, name, userId, templateId, currentAppId));
+
+    // Return immediately with generating status
+    return NextResponse.json({
+      success: true,
+      appId: currentAppId,
+      status: 'generating',
+      message: 'Generation started. This may take several minutes.'
+    });
   } catch (error: any) {
-    console.error("Error calling v0 API:", error);
+    console.error("Error in generate route:", error);
     return NextResponse.json(
       { 
         error: error.message || "An error occurred"
       },
       { status: 500 }
     );
+  }
+}
+
+// Background function to process V0 generation
+async function processV0Generation(
+  message: string, 
+  name: string, 
+  userId: string, 
+  templateId: string, 
+  appId: string
+) {
+  const supabase = await createClient();
+  
+  try {
+    // Create a new chat with the v0 SDK using enhanced parameters
+    const chat = await v0.chats.create({ 
+      message,
+      system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
+      chatPrivacy: "private",
+      modelConfiguration: {
+        modelId: "v0-1.5-md", // Use the largest model for better results
+        thinking: true, // Enable thinking for better reasoning
+        imageGenerations: false
+      }
+    });
+    
+    if (chat.id) {
+      // Update the app record with generated status and chat data
+      const updateData = {
+        chat_id: chat.id,
+        status: 'generated',
+        preview_url: chat.demo,
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      };
+      
+      const { data: appData, error: dbError } = await supabase
+        .from('apps')
+        .update(updateData)
+        .eq('id', appId)
+        .select('id')
+        .single();
+        
+      if (dbError) {
+        console.error('Error updating app with generated data:', dbError);
+        throw dbError;
+      }
+      
+      // Insert into app_versions table
+      let versionId = null;
+      let versionDemoUrl = chat.demo || null;
+      
+      if (chat.latestVersion) {
+        versionId = chat.latestVersion.id || null;
+        versionDemoUrl = chat.latestVersion.demoUrl || versionDemoUrl;
+      }
+      
+      if (appData && versionId) {
+        const { error: versionError } = await supabase
+          .from('app_versions')
+          .insert({
+            app_id: appData.id,
+            version_id: versionId,
+            created_by: userId,
+            version_demo_url: versionDemoUrl,
+            version_number: 1 // First version
+          });
+        
+        if (versionError) {
+          console.error('Error storing version reference:', versionError);
+        }
+      }
+    }
+    
+  } catch (error: any) {
+    console.error('Error in V0 generation:', error);
+    
+    // Update app status to failed
+    await supabase
+      .from('apps')
+      .update({
+        status: 'failed',
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', appId);
   }
 }
 
