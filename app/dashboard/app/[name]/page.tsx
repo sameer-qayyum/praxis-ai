@@ -516,14 +516,6 @@ ${app.active_fields_text || ''}
 
   // Single effect to handle all generation logic
   useEffect(() => {
-    console.log('🔄 useEffect triggered with app data:', {
-      appId: app?.id,
-      chatId: app?.chat_id,
-      status: app?.status,
-      isLoadingApp,
-      isPending: generateAppMutation.isPending
-    });
-    
     if (!app?.id) {
       console.log('🚫 App data not yet available, waiting...');
       return;
@@ -537,8 +529,6 @@ ${app.active_fields_text || ''}
     
     // CASE 1: No chat_id - Start new generation
     if (!app.chat_id && !isGenerating && generateAttemptedRef.current !== app.id) {
-      console.log('🚀 Starting new generation for app without chat_id');
-      console.log('🔥 CALLING GENERATE API MUTATION NOW');
       generateAttemptedRef.current = app.id; // Mark this app as attempted
       setIsGenerating(true);
       
@@ -637,19 +627,10 @@ ${app.active_fields_text || ''}
     
     // Retry logic to handle race condition with database commit
     const waitForChatId = async (retryCount = 0): Promise<any> => {
-      console.log(`🔍 Fetching fresh app data for appId: ${appId} (attempt ${retryCount + 1})`);
       const appResult = await refetchApp();
       const currentApp = appResult.data;
       
-      console.log(`📋 App data received:`, {
-        appId: currentApp?.id,
-        chatId: currentApp?.chat_id,
-        status: currentApp?.status,
-        name: currentApp?.name
-      });
-      
       if (!currentApp?.chat_id && retryCount < 5) {
-        console.log(`⏳ No chat_id yet, retrying in 2 seconds... (${retryCount + 1}/5)`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         return waitForChatId(retryCount + 1);
       }
@@ -666,11 +647,8 @@ ${app.active_fields_text || ''}
       return;
     }
     
-    console.log(`🎯 Starting polling for app ${appId} with chat_id: ${currentApp.chat_id}`);
-    
     const poll = async () => {
       attempts++;
-      console.log(`🔍 [POLL ${attempts}/${maxAttempts}] Checking V0 status for chat: ${currentApp.chat_id}`);
       
       try {
         // Poll V0 directly using chat ID
@@ -683,26 +661,12 @@ ${app.active_fields_text || ''}
         
         const chatData = await response.json();
         
-        // Log current V0 status for debugging
-        console.log(`📊 [POLL ${attempts}] V0 Status:`, {
-          hasDemo: !!chatData.demo,
-          demoUrl: chatData.demo || 'null',
-          hasMessages: !!chatData.messages,
-          messageCount: chatData.messages?.length || 0,
-          hasLatestVersion: !!chatData.latestVersion,
-          versionId: chatData.latestVersion?.id || 'null',
-          chatStatus: chatData.status || 'unknown'
-        });
-
-        console.log(`📋 [POLL ${attempts}] Full getchat response:`, chatData);
-        
         // Update preview_url from demoUrl if it exists (like in old working code)
         const demoUrl = chatData.demo || 
                        (chatData.latestVersion?.demoUrl) || 
                         null;
                         
         if (demoUrl && app && app.preview_url !== demoUrl) {
-          console.log('🔄 [POLL] Updating preview_url:', { from: app.preview_url, to: demoUrl });
           const updatedApp = {
             ...app,
             preview_url: demoUrl
@@ -714,10 +678,6 @@ ${app.active_fields_text || ''}
         const isComplete = chatData.demo && chatData.messages && chatData.messages.length > 0;
         
         if (isComplete) {
-          console.log('🎉 [POLL SUCCESS] V0 generation completed! Criteria met:');
-          console.log('  ✅ Demo URL:', chatData.demo);
-          console.log('  ✅ Messages:', chatData.messages.length);
-          console.log('  ✅ Version ID:', chatData.latestVersion?.id || 'none');
           
           const completeResponse = await fetch('/api/v0/complete', {
             method: 'POST',
@@ -732,10 +692,34 @@ ${app.active_fields_text || ''}
           });
           
           if (completeResponse.ok) {
+            console.log('🎉 [SUCCESS] Generation completed, starting refetch sequence...');
             toast.success("App successfully generated!");
             setIsGenerating(false);
-            await refetchApp();
-            setTimeout(() => refetchChat(), 500);
+            
+            console.log('🔄 [SUCCESS] Calling refetchApp()...');
+            const appRefetchResult = await refetchApp();
+            console.log('📋 [SUCCESS] refetchApp() result:', {
+              success: !!appRefetchResult.data,
+              appId: appRefetchResult.data?.id,
+              chatId: appRefetchResult.data?.chat_id,
+              status: appRefetchResult.data?.status,
+              previewUrl: appRefetchResult.data?.preview_url
+            });
+            
+            console.log('⏰ [SUCCESS] Waiting 500ms before calling refetchChat()...');
+            setTimeout(() => {
+              console.log('🔄 [SUCCESS] Now calling refetchChat()...');
+              refetchChat().then((chatRefetchResult) => {
+                console.log('💬 [SUCCESS] refetchChat() completed:', {
+                  success: !!chatRefetchResult.data,
+                  messageCount: Array.isArray(chatRefetchResult.data) ? chatRefetchResult.data.length : (chatRefetchResult.data?.messages?.length || 0),
+                  hasDemo: !!(chatRefetchResult.data?.demo || (Array.isArray(chatRefetchResult.data) ? false : chatRefetchResult.data?.demo)),
+                  chatData: chatRefetchResult.data
+                });
+              }).catch((error) => {
+                console.error('❌ [SUCCESS] refetchChat() failed:', error);
+              });
+            }, 500);
           } else {
             throw new Error('Failed to complete generation');
           }
