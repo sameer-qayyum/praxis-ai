@@ -535,7 +535,7 @@ ${app.active_fields_text || ''}
     }
     
     // CASE 1: No chat_id - Start new generation
-    if (!app.chat_id) {
+    if (!app.chat_id && !isGenerating) {
       console.log('🚀 Starting new generation for app without chat_id');
       setIsGenerating(true);
       
@@ -556,7 +556,7 @@ ${app.active_fields_text || ''}
       });
     }
     // CASE 2: Has chat_id and status is 'generating' - Resume polling
-    else if (app.chat_id && app.status === 'generating') {
+    else if (app.chat_id && app.status === 'generating' && !isGenerating) {
       console.log('🔄 Resuming polling for ongoing generation');
       setIsGenerating(true);
       startPollingForCompletion(app.id);
