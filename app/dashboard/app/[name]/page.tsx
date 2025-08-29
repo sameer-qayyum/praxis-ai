@@ -286,8 +286,6 @@ const AppPage = () => {
 
   // Check if app needs generation
   const [isGenerating, setIsGenerating] = useState(false)
-  // Track whether we've already attempted generation for this app ID
-  const [hasAttemptedGeneration, setHasAttemptedGeneration] = useState(false)
   
   
   // Log app data on first load and trigger chat message fetch if we have a chat_id
@@ -521,14 +519,11 @@ ${app.active_fields_text || ''}
       return;
     }
     
-    // Skip if we've already attempted generation or if we're already loading data
-    if (hasAttemptedGeneration || isLoadingApp || generateAppMutation.isPending) {
-      console.log('⏭️ Already attempted generation or operation in progress, skipping');
+    // Skip if we're already loading data or mutation is pending
+    if (isLoadingApp || generateAppMutation.isPending) {
+      console.log('⏭️ Operation in progress, skipping');
       return;
     }
-
-    // Mark that we've attempted generation to prevent further attempts
-    setHasAttemptedGeneration(true);
     
     // CASE 1: No chat_id - Start new generation
     if (!app.chat_id) {
@@ -568,7 +563,7 @@ ${app.active_fields_text || ''}
       setIsGenerating(false);
     }
     
-  }, [app?.id, app?.chat_id, app?.status, hasAttemptedGeneration, isLoadingApp, generateAppMutation.isPending]);
+  }, [app?.id, app?.chat_id, app?.status, isLoadingApp, generateAppMutation.isPending]);
   
   // Fetch chat messages when we have a chat_id
   const {
