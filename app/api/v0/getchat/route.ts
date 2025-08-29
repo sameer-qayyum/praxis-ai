@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ 
       success: true,
       chatId: chatId,
-      messages: messages,
+      messages: chatData.messages || [],
       demo: chatData.demo || null, // Root level demo URL
       latestVersion: chatData.latestVersion || null // Includes demoUrl
     });
