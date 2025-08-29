@@ -630,21 +630,33 @@ ${app.active_fields_text || ''}
     const maxAttempts = 220; // Max ~18 minutes
     let attempts = 0;
     
-    // Get current app data to get chat_id
-    console.log(`🔍 Fetching fresh app data for appId: ${appId}`);
-    const appResult = await refetchApp();
-    const currentApp = appResult.data;
+    // Retry logic to handle race condition with database commit
+    const waitForChatId = async (retryCount = 0): Promise<any> => {
+      console.log(`🔍 Fetching fresh app data for appId: ${appId} (attempt ${retryCount + 1})`);
+      const appResult = await refetchApp();
+      const currentApp = appResult.data;
+      
+      console.log(`📋 App data received:`, {
+        appId: currentApp?.id,
+        chatId: currentApp?.chat_id,
+        status: currentApp?.status,
+        name: currentApp?.name
+      });
+      
+      if (!currentApp?.chat_id && retryCount < 5) {
+        console.log(`⏳ No chat_id yet, retrying in 2 seconds... (${retryCount + 1}/5)`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return waitForChatId(retryCount + 1);
+      }
+      
+      return currentApp;
+    };
     
-    console.log(`📋 App data received:`, {
-      appId: currentApp?.id,
-      chatId: currentApp?.chat_id,
-      status: currentApp?.status,
-      name: currentApp?.name
-    });
+    const currentApp = await waitForChatId();
     
     if (!currentApp?.chat_id) {
-      console.error(`❌ No chat_id found for app ${appId}. App data:`, currentApp);
-      toast.error("No chat ID found. Please try again.");
+      console.error(`❌ No chat_id found for app ${appId} after 5 retries. App data:`, currentApp);
+      toast.error("Generation failed to start. Please try again.");
       setIsGenerating(false);
       return;
     }
