@@ -87,13 +87,13 @@ export const PreviewPanel = ({
   const combinedPreviewKey = Math.max(localPreviewKey, externalPreviewKey || 0);
 
   // Log iframe URL loading
-  console.log('🖼️ [IFRAME] Loading URL:', {
+  console.log('🖼️ [IFRAME] Loading URL:', JSON.stringify({
     url: `${currentPreviewUrl}?timestamp=${combinedPreviewKey}`,
     currentPreviewUrl,
     combinedPreviewKey,
     viewport,
     selectedVersion
-  });
+  }, null, 2));
 
   // Log app information for debugging
   useEffect(() => {

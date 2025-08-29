@@ -286,9 +286,8 @@ const AppPage = () => {
 
   // Check if app needs generation
   const [isGenerating, setIsGenerating] = useState(false)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
-  const generateAttemptedRef = useRef<string | null>(null) // Track which app we've attempted generation for
-  
+  // Track whether we've already attempted generation for this app ID
+  const [hasAttemptedGeneration, setHasAttemptedGeneration] = useState(false)
   
   // Log app data on first load and trigger chat message fetch if we have a chat_id
   useEffect(() => {
@@ -491,13 +490,9 @@ ${app.active_fields_text || ''}
         }
 
         const generateData = await generateResponse.json()
-        
-        // New API returns { success: true, appId, status: 'generating', message }
-        if (generateData.status === 'generating') {
-          // Start polling for completion
-          return { ...generateData, needsPolling: true }
-        }
-        
+
+        // Refetch app data to get updated record
+        await refetchApp()
         return generateData
       } catch (error) {
         console.error('Generation API error:', error);
@@ -514,41 +509,45 @@ ${app.active_fields_text || ''}
     }
   })
 
-  // Single effect to handle all generation logic
+  // CRITICAL: This is the main effect that triggers app generation on first load
+  // It runs once when the component mounts with app data
   useEffect(() => {
-    console.log('🔄 useEffect triggered with app data:', {
-      appId: app?.id,
-      chatId: app?.chat_id,
-      status: app?.status,
-      isLoadingApp,
-      isPending: generateAppMutation.isPending
-    });
-    
-    if (!app?.id) {
+    // We need this check because the effect might run before app data is available
+    if (!app) {
       console.log('🚫 App data not yet available, waiting...');
       return;
     }
     
-    // Skip if we're already loading data or mutation is pending
-    if (isLoadingApp || generateAppMutation.isPending) {
-      console.log('⏭️ Operation in progress, skipping');
+    // Skip if we've already attempted generation or if we're already loading data
+    if (hasAttemptedGeneration || isLoadingApp || generateAppMutation.isPending) {
+      console.log('⏭️ Already attempted generation or operation in progress, skipping');
       return;
     }
+
+    // Mark that we've attempted generation to prevent further attempts
+    setHasAttemptedGeneration(true);
     
-    // CASE 1: No chat_id - Start new generation
-    if (!app.chat_id && !isGenerating && generateAttemptedRef.current !== app.id) {
-      console.log('🚀 Starting new generation for app without chat_id');
-      console.log('🔥 CALLING GENERATE API MUTATION NOW');
-      generateAttemptedRef.current = app.id; // Mark this app as attempted
+    // If we have an app without chat_id, generate it
+    if (app.id && !app.chat_id) {
+      
+      // Set UI state
       setIsGenerating(true);
       
+      // Show toast with unique ID so we can dismiss it later
       const toastId = toast.loading("Generating your app with V0...");
       
+      // Call the mutation directly
       generateAppMutation.mutate(undefined, {
         onSuccess: (data) => {
           toast.dismiss(toastId);
-          toast.success("Generation started! This may take several minutes.");
-          startPollingForCompletion(data.appId);
+          toast.success("App successfully generated!");
+          
+          // Force refetch to get the updated app with chat_id
+          refetchApp().then(() => {
+            // Once the app is refreshed, also fetch chat messages
+            // Small timeout to ensure app data is updated first
+            setTimeout(() => refetchChat(), 500);
+          });
         },
         onError: (error) => {
           console.error('❌ Generation failed:', error);
@@ -557,38 +556,14 @@ ${app.active_fields_text || ''}
           setIsGenerating(false);
         }
       });
+    } else {
+      console.log('✅ App already has chat_id or not ready for generation');
     }
-    // CASE 2: Has chat_id and status is 'generating' - Resume polling
-    else if (app.chat_id && app.status === 'generating' && !isGenerating) {
-      console.log('🔄 Resuming polling for ongoing generation');
-      setIsGenerating(true);
-      startPollingForCompletion(app.id);
-    }
-    // CASE 3: Has chat_id and status is 'generated' - Set UI state
-    else if (app.chat_id && app.status === 'generated') {
-      console.log('✅ App already generated');
-      setIsGenerating(false);
-    }
-    // CASE 4: Has chat_id and status is 'failed' - Set UI state
-    else if (app.chat_id && app.status === 'failed') {
-      console.log('❌ App generation failed');
-      setIsGenerating(false);
-    }
-    
-  }, [app?.id, app?.chat_id, app?.status, isLoadingApp, generateAppMutation.isPending]);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        console.log('🧹 Cleaning up polling on unmount');
-        clearTimeout(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, []);
+  }, [app?.id, app?.chat_id]); // Only depend on critical app properties
   
   // Fetch chat messages when we have a chat_id
+  // When coming from the wizard flow with a freshly generated chat, this will run after generation
+  // When coming to an existing app page, this will run on load
   const {
     data: chatData,
     isLoading: isLoadingChat,
@@ -598,9 +573,10 @@ ${app.active_fields_text || ''}
     queryFn: async () => {
       if (!app?.chat_id) {
         console.error('No chat_id available - this should not happen due to enabled property');
-        throw new Error('No chat_id available');
+        return [];
       }
 
+      // Use the getchat API route which uses v0.chats.getById
       const response = await fetch(`/api/v0/getchat?chatId=${app.chat_id}`, {
         method: "GET",
         headers: {
@@ -617,151 +593,8 @@ ${app.active_fields_text || ''}
       const data = await response.json();
       return data.messages || []
     },
-    enabled: !!app?.chat_id && app?.status === 'generated', // Only fetch when generated
-    retry: false, // Don't retry on error to prevent infinite loops
-    refetchOnWindowFocus: false, // Don't refetch on window focus
+    enabled: !!app?.chat_id, // Enabled whenever we have a chat_id
   })
-  
-  // Polling function to check V0 generation completion
-  const startPollingForCompletion = useCallback(async (appId: string) => {
-    // Clear any existing polling
-    if (pollingRef.current) {
-      console.log('🛑 Clearing existing polling interval');
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-    
-    const pollInterval = 5000; // Poll every 5 seconds
-    const maxAttempts = 220; // Max ~18 minutes
-    let attempts = 0;
-    
-    // Retry logic to handle race condition with database commit
-    const waitForChatId = async (retryCount = 0): Promise<any> => {
-      console.log(`🔍 Fetching fresh app data for appId: ${appId} (attempt ${retryCount + 1})`);
-      const appResult = await refetchApp();
-      const currentApp = appResult.data;
-      
-      console.log(`📋 App data received:`, {
-        appId: currentApp?.id,
-        chatId: currentApp?.chat_id,
-        status: currentApp?.status,
-        name: currentApp?.name
-      });
-      
-      if (!currentApp?.chat_id && retryCount < 5) {
-        console.log(`⏳ No chat_id yet, retrying in 2 seconds... (${retryCount + 1}/5)`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return waitForChatId(retryCount + 1);
-      }
-      
-      return currentApp;
-    };
-    
-    const currentApp = await waitForChatId();
-    
-    if (!currentApp?.chat_id) {
-      console.error(`❌ No chat_id found for app ${appId} after 5 retries. App data:`, currentApp);
-      toast.error("Generation failed to start. Please try again.");
-      setIsGenerating(false);
-      return;
-    }
-    
-    console.log(`🎯 Starting polling for app ${appId} with chat_id: ${currentApp.chat_id}`);
-    
-    const poll = async () => {
-      attempts++;
-      console.log(`🔍 [POLL ${attempts}/${maxAttempts}] Checking V0 status for chat: ${currentApp.chat_id}`);
-      
-      try {
-        // Poll V0 directly using chat ID
-        const response = await fetch(`/api/v0/getchat?chatId=${currentApp.chat_id}`);
-        
-        if (!response.ok) {
-          console.error(`❌ [POLL ${attempts}] Failed to fetch V0 status: ${response.status} ${response.statusText}`);
-          throw new Error('Failed to check V0 status');
-        }
-        
-        const chatData = await response.json();
-        
-        // Log current V0 status for debugging
-        console.log(`📊 [POLL ${attempts}] V0 Status:`, {
-          hasDemo: !!chatData.demo,
-          demoUrl: chatData.demo || 'null',
-          hasMessages: !!chatData.messages,
-          messageCount: chatData.messages?.length || 0,
-          hasLatestVersion: !!chatData.latestVersion,
-          versionId: chatData.latestVersion?.id || 'null',
-          chatStatus: chatData.status || 'unknown'
-        });
-
-        console.log(`📋 [POLL ${attempts}] Full getchat response:`, chatData);
-        
-        // Update preview_url from demoUrl if it exists (like in old working code)
-        const demoUrl = chatData.demo || 
-                       (chatData.latestVersion?.demoUrl) || 
-                        null;
-                        
-        if (demoUrl && app && app.preview_url !== demoUrl) {
-          console.log('🔄 [POLL] Updating preview_url:', { from: app.preview_url, to: demoUrl });
-          const updatedApp = {
-            ...app,
-            preview_url: demoUrl
-          };
-          queryClient.setQueryData(["app", name], updatedApp);
-        }
-        
-        // Success criteria: Must have demo URL AND at least one message
-        const isComplete = chatData.demo && chatData.messages && chatData.messages.length > 0;
-        
-        if (isComplete) {
-          console.log('🎉 [POLL SUCCESS] V0 generation completed! Criteria met:');
-          console.log('  ✅ Demo URL:', chatData.demo);
-          console.log('  ✅ Messages:', chatData.messages.length);
-          console.log('  ✅ Version ID:', chatData.latestVersion?.id || 'none');
-          
-          const completeResponse = await fetch('/api/v0/complete', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              chatId: currentApp.chat_id,
-              demo: chatData.demo,
-              versionId: chatData.latestVersion?.id || null
-            })
-          });
-          
-          if (completeResponse.ok) {
-            toast.success("App successfully generated!");
-            setIsGenerating(false);
-            await refetchApp();
-            setTimeout(() => refetchChat(), 500);
-          } else {
-            throw new Error('Failed to complete generation');
-          }
-          return;
-        } else if (attempts >= maxAttempts) {
-          toast.error("Generation is taking longer than expected. Please refresh the page to check status.");
-          setIsGenerating(false);
-          return;
-        }
-        
-        console.log(`🔄 V0 still generating... (attempt ${attempts}/${maxAttempts})`);
-        pollingRef.current = setTimeout(poll, pollInterval);
-        
-      } catch (error) {
-        console.error('Polling error:', error);
-        if (attempts >= maxAttempts) {
-          toast.error("Unable to check generation status. Please refresh the page.");
-          setIsGenerating(false);
-        } else {
-          pollingRef.current = setTimeout(poll, pollInterval);
-        }
-      }
-    };
-    
-    pollingRef.current = setTimeout(poll, pollInterval);
-  }, [refetchApp, refetchChat, toast]);
 
   // Send message mutation
   const sendMessageMutation = useMutation({
@@ -893,7 +726,7 @@ ${app.active_fields_text || ''}
       const formatted = formatMessages(messageArray, appPromptData as AppPromptTemplate)
       setMessages(formatted)
     }
-  }, [chatData, appPromptData, app, name, queryClient])
+  }, [chatData, appPromptData])
 
   // Scroll to bottom when messages update (skip on initial load and when chat is hidden)
   useEffect(() => {
@@ -1058,27 +891,6 @@ ${app.active_fields_text || ''}
   if (appError || !app) {
     return notFound()
   }
-
-  // Log data being passed to components
-  console.log('💬 [CHAT PANEL] Props passed:', JSON.stringify({
-    messageCount: messages.length,
-    isLoadingChat,
-    appId: app?.id,
-    chatId: app?.chat_id,
-    hasApp: !!app,
-    messagesPreview: messages.slice(0, 2).map(m => ({ role: m.role, contentLength: m.content.length }))
-  }, null, 2));
-
-  console.log('🖼️ [PREVIEW PANEL] Props passed:', JSON.stringify({
-    appId: app?.id,
-    chatId: app?.chat_id,
-    hasApp: !!app,
-    activeTab,
-    messageCount: messages.length,
-    selectedVersion,
-    previewKey,
-    previewUrl: app?.preview_url
-  }, null, 2));
 
   return (
     <div className="h-[calc(100vh-56px)] flex flex-col bg-white dark:bg-slate-900 relative overflow-hidden">
