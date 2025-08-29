@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Background function to process V0 generation
+// Background function to initiate V0 generation
 async function processV0Generation(
   message: string, 
   name: string, 
@@ -110,68 +110,62 @@ async function processV0Generation(
   const supabase = await createClient();
   
   try {
-    // Create a new chat with the v0 SDK using enhanced parameters
-    const chat = await v0.chats.create({ 
-      message,
-      system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
-      chatPrivacy: "private",
-      modelConfiguration: {
-        modelId: "v0-1.5-md", // Use the largest model for better results
-        thinking: true, // Enable thinking for better reasoning
-        imageGenerations: false
-      }
+    // Get the API key from environment variables
+    const apiKey = process.env.V0_API_KEY || process.env.NEXT_PUBLIC_V0_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error('V0_API_KEY not configured');
+    }
+
+    // Create a new chat with direct API call to V0 (async mode)
+    const response = await fetch('https://api.v0.dev/v1/chats', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        system: "You are building a web application using React, Next.js, and Tailwind CSS. Focus on creating clean, modern, and responsive designs with excellent user experience.",
+        message,
+        modelConfiguration: {
+          modelId: "v0-1.5-md",
+          thinking: true,
+          imageGenerations: false,
+        },
+        responseMode: "async", // This ensures immediate response
+      })
     });
+
+    if (!response.ok) {
+      throw new Error(`V0 API error: ${response.status} ${response.statusText}`);
+    }
+
+    const chat = await response.json();
     
     if (chat.id) {
-      // Update the app record with generated status and chat data
+      // Update the app record with chat_id and generating status
       const updateData = {
         chat_id: chat.id,
-        status: 'generated',
-        preview_url: chat.demo,
+        status: 'generating', // Set to generating, not generated
         updated_by: userId,
         updated_at: new Date().toISOString()
       };
       
-      const { data: appData, error: dbError } = await supabase
+      const { error: dbError } = await supabase
         .from('apps')
         .update(updateData)
-        .eq('id', appId)
-        .select('id')
-        .single();
+        .eq('id', appId);
         
       if (dbError) {
-        console.error('Error updating app with generated data:', dbError);
+        console.error('Error updating app with chat_id:', dbError);
         throw dbError;
       }
       
-      // Insert into app_versions table
-      let versionId = null;
-      let versionDemoUrl = chat.demo || null;
-      
-      if (chat.latestVersion) {
-        versionId = chat.latestVersion.id || null;
-        versionDemoUrl = chat.latestVersion.demoUrl || versionDemoUrl;
-      }
-      
-      if (appData && versionId) {
-        const { error: versionError } = await supabase
-          .from('app_versions')
-          .insert({
-            app_id: appData.id,
-            version_id: versionId,
-            created_by: userId,
-            version_demo_url: versionDemoUrl,
-            version_number: 1 // First version
-          });
-        
-        if (versionError) {
-          console.error('Error storing version reference:', versionError);
-        }
-      }
+      console.log(`✅ V0 generation initiated for app ${appId}, chat_id: ${chat.id}`);
     }
     
   } catch (error: any) {
-    console.error('Error in V0 generation:', error);
+    console.error('Error initiating V0 generation:', error);
     
     // Update app status to failed
     await supabase

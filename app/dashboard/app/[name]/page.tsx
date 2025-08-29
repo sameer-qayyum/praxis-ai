@@ -607,32 +607,62 @@ ${app.active_fields_text || ''}
     enabled: !!app?.chat_id, // Enabled whenever we have a chat_id
   })
   
-  // Polling function to check generation status
+  // Polling function to check V0 generation completion
   const startPollingForCompletion = useCallback(async (appId: string) => {
-    const pollInterval = 3000; // Poll every 3 seconds
-    const maxAttempts = 200; // Max 10 minutes (200 * 3 seconds)
+    const pollInterval = 5000; // Poll every 5 seconds
+    const maxAttempts = 120; // Max 10 minutes (120 * 5 seconds)
     let attempts = 0;
+    
+    // First get the app data to get chat_id
+    const appResult = await refetchApp();
+    const currentApp = appResult.data;
+    
+    if (!currentApp?.chat_id) {
+      toast.error("No chat ID found. Please try again.");
+      setIsGenerating(false);
+      return;
+    }
     
     const poll = async () => {
       attempts++;
       
       try {
-        // Refetch app data to check status
-        const result = await refetchApp();
-        const updatedApp = result.data;
+        // Poll V0 directly using chat ID
+        const response = await fetch(`/api/v0/getchat?chatId=${currentApp.chat_id}`);
         
-        if (updatedApp?.status === 'generated' && updatedApp?.chat_id) {
-          // Generation completed successfully
-          toast.success("App successfully generated!");
-          setIsGenerating(false);
+        if (!response.ok) {
+          throw new Error('Failed to check V0 status');
+        }
+        
+        const chatData = await response.json();
+        
+        // Check if V0 generation is complete
+        if (chatData.demo && chatData.messages && chatData.messages.length > 0) {
+          // Generation completed - call complete route
+          console.log('🎉 V0 generation completed, calling complete route...');
           
-          // Fetch chat messages now that we have a chat_id
-          setTimeout(() => refetchChat(), 500);
-          return;
-        } else if (updatedApp?.status === 'failed') {
-          // Generation failed
-          toast.error("App generation failed. Please try again.");
-          setIsGenerating(false);
+          const completeResponse = await fetch('/api/v0/complete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              chatId: currentApp.chat_id,
+              demo: chatData.demo,
+              versionId: chatData.latestVersion?.id || null
+            })
+          });
+          
+          if (completeResponse.ok) {
+            toast.success("App successfully generated!");
+            setIsGenerating(false);
+            
+            // Refetch app data and chat messages
+            await refetchApp();
+            setTimeout(() => refetchChat(), 500);
+          } else {
+            throw new Error('Failed to complete generation');
+          }
           return;
         } else if (attempts >= maxAttempts) {
           // Timeout
@@ -642,9 +672,9 @@ ${app.active_fields_text || ''}
         }
         
         // Continue polling if still generating
-        if (updatedApp?.status === 'generating') {
-          setTimeout(poll, pollInterval);
-        }
+        console.log(`🔄 V0 still generating... (attempt ${attempts}/${maxAttempts})`);
+        setTimeout(poll, pollInterval);
+        
       } catch (error) {
         console.error('Polling error:', error);
         if (attempts >= maxAttempts) {
