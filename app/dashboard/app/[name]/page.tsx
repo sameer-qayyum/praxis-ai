@@ -665,15 +665,17 @@ ${app.active_fields_text || ''}
     if (app?.status === 'generating') {
       setIsGenerating(true);
       
-      // If we detect an app in generating state on page load, start polling
-      if (!hasAttemptedGeneration) {
+      // Only start polling if we haven't attempted generation in this session
+      // This handles page refreshes during ongoing generation
+      if (!hasAttemptedGeneration && !generateAppMutation.isPending) {
+        console.log('🔄 Detected ongoing generation on page load, resuming polling...');
         setHasAttemptedGeneration(true);
         startPollingForCompletion(app.id);
       }
     } else if (app?.status === 'generated' || app?.status === 'failed') {
       setIsGenerating(false);
     }
-  }, [app?.status, app?.id, hasAttemptedGeneration, startPollingForCompletion]);
+  }, [app?.status, app?.id, hasAttemptedGeneration, startPollingForCompletion, generateAppMutation.isPending]);
 
   // Send message mutation
   const sendMessageMutation = useMutation({
