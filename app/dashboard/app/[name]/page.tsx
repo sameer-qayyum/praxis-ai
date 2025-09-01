@@ -93,6 +93,8 @@ const AppPage = () => {
   // Fixed layout - no longer using resizable
   // Preview viewport selection
   const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop')
+  // Guard to prevent duplicate generate calls on initial load
+  const generationStartedRef = useRef(false)
 
   // Lock body scroll so only the preview iframe can scroll
   useEffect(() => {
@@ -523,9 +525,16 @@ ${app.active_fields_text || ''}
     
     // If we have an app without chat_id, generate it
     if (app.id && !app.chat_id) {
+      // Synchronous guard to avoid duplicate triggers before state/mutation flags update
+      if (generationStartedRef.current) {
+        return;
+      }
+      generationStartedRef.current = true;
       
       // Set UI state
       setIsGenerating(true);
+      // Optimistically set status to generating to reduce re-renders with stale data
+      queryClient.setQueryData(["app", name], (prev: any) => prev ? { ...prev, status: 'generating' } : prev);
       
       // Show toast with unique ID so we can dismiss it later
       const toastId = toast.loading("Generating your app with V0...");

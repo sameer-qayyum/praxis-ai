@@ -50,6 +50,24 @@ export async function POST(request: NextRequest) {
     }
     
     try {
+      // Idempotency check: if this app already has a chat_id (or is in generating/generated), do not create another chat
+      try {
+        const { data: existing, error: existingError } = await supabase
+          .from('apps')
+          .select('chat_id, status')
+          .eq('id', appId)
+          .single();
+        if (!existingError && existing && (existing.chat_id || existing.status === 'generating' || existing.status === 'generated')) {
+          return NextResponse.json({
+            success: true,
+            chatId: existing.chat_id,
+            alreadyExists: true
+          });
+        }
+      } catch (e) {
+        // proceed if lookup fails; downstream will still attempt safe update
+      }
+
       // Create a new chat with the v0 SDK using enhanced parameters
       const response = await fetch('https://api.v0.dev/v1/chats', {
         method: 'POST',
