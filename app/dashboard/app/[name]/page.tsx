@@ -564,12 +564,18 @@ ${app.active_fields_text || ''}
                 if (res.ok) {
                   const chatData = await res.json();
                   const demoUrl = chatData?.demo || chatData?.latestVersion?.demoUrl || null;
-                  const rawStatus = chatData?.status || chatData?.latestVersionStatus || '';
-                  const status = (typeof rawStatus === 'string' ? rawStatus : '').toLowerCase();
-                  const terminalStatuses = ['completed', 'succeeded', 'ready', 'idle'];
+                  // Per V0 docs, trust latestVersion.status (enum: pending|completed|failed)
+                  const rawLatestStatus = chatData?.latestVersion?.status ?? chatData?.latestVersionStatus ?? '';
+                  const latestStatus = (typeof rawLatestStatus === 'string' ? rawLatestStatus : '').toLowerCase();
 
-                  // Stop when demo is available OR status indicates terminal
-                  if (terminalStatuses.includes(status)) {
+                  // Stop on failure to avoid infinite polling
+                  if (latestStatus === 'failed') {
+                    finalChat = chatData;
+                    break;
+                  }
+
+                  // Consider complete only when status is completed AND demo is present
+                  if (latestStatus === 'completed' && !!demoUrl) {
                     finalChat = chatData;
                     break;
                   }
