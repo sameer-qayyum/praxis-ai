@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from '@/lib/supabase/server';
 import { v0 } from 'v0-sdk';
+import { createHash, randomUUID } from 'crypto';
 
 type FileData = {
   name?: string;
@@ -18,6 +19,10 @@ type FileData = {
  */
 export async function POST(request: NextRequest) {
   try {
+    const reqId = randomUUID();
+    const now = () => new Date().toISOString();
+    const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+    console.log(`[messages][${reqId}] ENTER ${now()}`);
     // Create Supabase client
     const supabase = await createClient();
     
@@ -59,9 +64,11 @@ export async function POST(request: NextRequest) {
     if (urlChatId) {
       // Fetch chat messages using SDK
       try {
+        console.log(`[messages][${reqId}] FETCH chat messages chatId=${chatId}`);
         const chatData = await v0.chats.getById({
           chatId
         });
+        console.log(`[messages][${reqId}] FETCH OK messagesCount=${(chatData?.messages||[]).length}`);
         
         // Format messages for the client
         const messages = chatData.messages.map((message: any) => ({
@@ -107,8 +114,11 @@ export async function POST(request: NextRequest) {
       payload.files = files;
     }
 
+    const payloadHash = hash(`${chatId}|${message}|${JSON.stringify(files||[])}`);
+    console.log(`[messages][${reqId}] SEND -> V0 chatId=${chatId} hash=${payloadHash}`);
     // Send message using SDK
     const result = await v0.chats.sendMessage(payload);
+    console.log(`[messages][${reqId}] SEND OK latestVersion=${result?.latestVersion?.id||'n/a'} demo=${result?.demo?'y':'n'}`);
 
     // Get app ID associated with this chat ID
     const { data: appData, error: appError } = await supabase
@@ -133,6 +143,7 @@ export async function POST(request: NextRequest) {
       } else {
         // Increment the number_of_messages count
         const currentCount = currentData.number_of_messages || 0;
+        console.log(`[messages][${reqId}] DB increment messages appId=${appData.id} from=${currentCount} to=${currentCount+1}`);
         const { error: updateError } = await supabase
           .from('apps')
           .update({
@@ -148,6 +159,7 @@ export async function POST(request: NextRequest) {
         
         // Check if result has latestVersion with a new version ID
         if (result.latestVersion && result.latestVersion.id) {
+          console.log(`[messages][${reqId}] DB insert app_version versionId=${result.latestVersion.id}`);
           // Get the max version_number for this app to determine the next version number
           const { data: versionData, error: versionQueryError } = await supabase
             .from('app_versions')
@@ -176,13 +188,14 @@ export async function POST(request: NextRequest) {
                 created_by: session.user.id, // Use authenticated user's ID
                 version_number: nextVersionNumber
               });
-              
+            
             if (insertError) {
               console.error('Error inserting app version:', insertError);
             } else {
               
               // Update the app's preview_url if available
               if (demoUrl) {
+                console.log(`[messages][${reqId}] DB update preview_url`);
                 await supabase
                   .from('apps')
                   .update({ preview_url: demoUrl })
@@ -195,6 +208,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Return the full message data from v0 SDK
+    console.log(`[messages][${reqId}] EXIT OK`);
     return NextResponse.json({
       success: true,
       message: result,
@@ -202,7 +216,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error sending message:', error);
+    console.error('[messages] ERROR', error);
     return NextResponse.json(
       { error: error.message || 'Failed to send message' },
       { status: 500 }

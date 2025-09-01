@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from '@/lib/supabase/server';
+import { createHash, randomUUID } from 'crypto';
 
 // Type for file mapping to handle v0 SDK types safely
 type FileMapping = {
@@ -18,6 +19,10 @@ type V0File = {
 
 export async function POST(request: NextRequest) {
   try {
+    const reqId = randomUUID();
+    const now = () => new Date().toISOString();
+    const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+    console.log(`[generate][${reqId}] ENTER ${now()}`);
     // For API routes using App Router, we need to access the Supabase DB directly 
     // without cookie handling since we don't need to maintain a session
     const supabase = await createClient();
@@ -33,6 +38,8 @@ export async function POST(request: NextRequest) {
     // Parse request body
     const body = await request.json();
     const { message, name, userId, templateId, appId } = body;
+    const payloadHash = hash(`${appId}|${name||''}|${templateId||''}|${message||''}`);
+    console.log(`[generate][${reqId}] INPUT appId=${appId} name=${name} templateId=${templateId||'n/a'} hash=${payloadHash}`);
     
     // Make sure we have a userId to satisfy RLS policies
     if (!userId) {
@@ -58,6 +65,7 @@ export async function POST(request: NextRequest) {
           .eq('id', appId)
           .single();
         if (!existingError && existing && (existing.chat_id || existing.status === 'generating' || existing.status === 'generated')) {
+          console.log(`[generate][${reqId}] IDEMPOTENT existing chat_id=${existing.chat_id} status=${existing.status}`);
           return NextResponse.json({
             success: true,
             chatId: existing.chat_id,
@@ -69,6 +77,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Create a new chat with the v0 SDK using enhanced parameters
+      console.log(`[generate][${reqId}] CREATE V0 CHAT ->`);
       const response = await fetch('https://api.v0.dev/v1/chats', {
         method: 'POST',
         headers: {
@@ -92,6 +101,7 @@ export async function POST(request: NextRequest) {
       }
   
       const chat = await response.json();
+      console.log(`[generate][${reqId}] V0 OK chatId=${chat?.id||'n/a'} projectId=${chat?.projectId||'n/a'} demo=${chat?.demo?'y':'n'}`);
       // Ensure we have a chat ID; otherwise return an error
       if (!chat.id) {
         return NextResponse.json(
@@ -108,6 +118,7 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString()
       };
 
+      console.log(`[generate][${reqId}] DB update app chat_id + status generating appId=${appId}`);
       const { error: dbError } = await supabase
         .from('apps')
         .update(updateData)
@@ -139,6 +150,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Return the response data including chat ID, project ID, and files
+      console.log(`[generate][${reqId}] EXIT OK`);
       return NextResponse.json({ 
         success: true, 
         chatId: chat.id,
@@ -149,14 +161,14 @@ export async function POST(request: NextRequest) {
       });
     
     } catch (sdkError: any) {
-      console.error('DEBUG - V0 SDK Error:', sdkError);
+      console.error(`[generate][${reqId}] ERROR SDK`, sdkError);
       return NextResponse.json(
         { error: `V0 SDK Error: ${sdkError.message || 'Unknown SDK error'}` },
         { status: 500 }
       );
     }
   } catch (error: any) {
-    console.error("Error calling v0 API:", error);
+    console.error("[generate] ERROR", error);
     return NextResponse.json(
       { 
         error: error.message || "An error occurred"

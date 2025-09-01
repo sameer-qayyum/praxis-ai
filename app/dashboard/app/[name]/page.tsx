@@ -564,10 +564,12 @@ ${app.active_fields_text || ''}
                 if (res.ok) {
                   const chatData = await res.json();
                   const demoUrl = chatData?.demo || chatData?.latestVersion?.demoUrl || null;
-                  const status = chatData?.status || chatData?.latestVersionStatus || null;
+                  const rawStatus = chatData?.status || chatData?.latestVersionStatus || '';
+                  const status = (typeof rawStatus === 'string' ? rawStatus : '').toLowerCase();
+                  const terminalStatuses = ['completed', 'succeeded', 'ready', 'idle'];
 
-                  // Consider ready when demo is available or status signals completion
-                  if ((typeof status === 'string' && status.toLowerCase() === 'completed')) {
+                  // Stop when demo is available OR status indicates terminal
+                  if (terminalStatuses.includes(status)) {
                     finalChat = chatData;
                     break;
                   }
