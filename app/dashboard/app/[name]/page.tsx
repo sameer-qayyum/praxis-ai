@@ -543,7 +543,7 @@ ${app.active_fields_text || ''}
             }
 
             // Poll getchat until ready
-            const maxAttempts = 60; // ~2 minutes at 2s interval
+            const maxAttempts = 500; // ~2 minutes at 2s interval
             const intervalMs = 2000;
             let attempt = 0;
             let finalChat: any = null;
