@@ -554,8 +554,12 @@ ${app.active_fields_text || ''}
             // Poll getchat until ready
             const maxAttempts = 500; // ~2 minutes at 2s interval
             const intervalMs = 2000;
+            const refinementWindowMs = 8000; // Option C: allow brief refinements
             let attempt = 0;
             let finalChat: any = null;
+            let firstCompletedAt: number | null = null;
+            let candidateCompletedChat: any = null;
+            let candidateVersionId: string | null = null;
 
             while (attempt < maxAttempts) {
               attempt++;
@@ -567,6 +571,7 @@ ${app.active_fields_text || ''}
                   // Per V0 docs, trust latestVersion.status (enum: pending|completed|failed)
                   const rawLatestStatus = chatData?.latestVersion?.status ?? chatData?.latestVersionStatus ?? '';
                   const latestStatus = (typeof rawLatestStatus === 'string' ? rawLatestStatus : '').toLowerCase();
+                  const versionId = chatData?.latestVersion?.id || null;
 
                   // Stop on failure to avoid infinite polling
                   if (latestStatus === 'failed') {
@@ -576,8 +581,25 @@ ${app.active_fields_text || ''}
 
                   // Consider complete only when status is completed AND demo is present
                   if (latestStatus === 'completed' && !!demoUrl) {
-                    finalChat = chatData;
-                    break;
+                    // First time we see a usable completion: start refinement window
+                    if (!firstCompletedAt) {
+                      firstCompletedAt = Date.now();
+                      candidateCompletedChat = chatData;
+                      candidateVersionId = versionId;
+                    } else {
+                      // Within window, prefer the newest completed version we see
+                      candidateCompletedChat = chatData;
+                      candidateVersionId = versionId;
+                    }
+                  }
+
+                  // If we have seen a completion, check if the refinement window has elapsed
+                  if (firstCompletedAt) {
+                    const elapsed = Date.now() - firstCompletedAt;
+                    if (elapsed >= refinementWindowMs) {
+                      finalChat = candidateCompletedChat || chatData;
+                      break;
+                    }
                   }
                 }
                 else {
