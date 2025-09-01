@@ -65,6 +65,7 @@ interface ChatPanelProps {
     template_id?: string
   }
   onTabChange?: (tab: 'chat' | 'guide') => void
+  isGenerating?: boolean
 }
 
 export const ChatPanel = ({
@@ -82,6 +83,7 @@ export const ChatPanel = ({
   messagesEndRef,
   app,
   onTabChange,
+  isGenerating,
 }: ChatPanelProps) => {
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [activeTab, setActiveTab] = useState<'chat' | 'guide'>('chat')
@@ -770,12 +772,35 @@ export const ChatPanel = ({
                   </div>
                 ))
               ) : (
-                <div className="flex items-center justify-center h-full text-center py-12">
-                  <div>
-                    <Sparkles className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500 text-sm">Start a conversation with Praxis</p>
-                    <p className="text-gray-400 text-xs mt-1">Ask questions or request changes to your app</p>
+                isGenerating ? (
+                  <div className="flex items-center justify-center h-full text-center py-12">
+                    <div className="px-2 py-3 text-blue-600">
+                      <TypewriterEffect 
+                        text="Generating your app..." 
+                        speed={150}
+                        className="text-sm font-medium"
+                      />
+                    </div>
                   </div>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-center py-12">
+                    <div>
+                      <Sparkles className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-500 text-sm">Start a conversation with Praxis</p>
+                      <p className="text-gray-400 text-xs mt-1">Ask questions or request changes to your app</p>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {/* Show generating indicator even when there are prior messages and a generation is in progress */}
+              {messages.length > 0 && isGenerating && (
+                <div className="px-2 py-3 text-blue-600">
+                  <TypewriterEffect 
+                    text="Generating your app..." 
+                    speed={150}
+                    className="text-sm font-medium"
+                  />
                 </div>
               )}
               <div ref={messagesEndRef} />

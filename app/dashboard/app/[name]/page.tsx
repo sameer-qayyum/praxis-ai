@@ -175,7 +175,6 @@ const AppPage = () => {
       if (error) {
         throw new Error(error.message)
       }
-
       return data as AppData
     },
   })
@@ -330,12 +329,6 @@ const AppPage = () => {
         return { success: true, message: 'App already has chat_id, no generation needed' };
       }
       try {
-        console.log('🔍 [APP GENERATION] Checking app type:', {
-          appId: app.id,
-          hasTemplateId: !!app.template_id,
-          templateId: app.template_id,
-          appType: app.template_id ? 'TEMPLATE' : 'CUSTOM'
-        })
 
         // 3. Get template data only if this is a template-based app
         let templateData = null
@@ -485,6 +478,7 @@ ${app.active_fields_text || ''}
         })
 
         if (!generateResponse.ok) {
+          console.error('[GENERATE] Response not OK', { status: generateResponse.status });
           const errorData = await generateResponse.json()
           throw new Error(errorData.error || 'Failed to generate app')
         }
@@ -492,7 +486,7 @@ ${app.active_fields_text || ''}
         const generateData = await generateResponse.json()
 
         // Refetch app data to get updated record
-        await refetchApp()
+        const refetched = await refetchApp()
         return generateData
       } catch (error) {
         console.error('Generation API error:', error);
@@ -538,16 +532,84 @@ ${app.active_fields_text || ''}
       
       // Call the mutation directly
       generateAppMutation.mutate(undefined, {
-        onSuccess: (data) => {
-          toast.dismiss(toastId);
-          toast.success("App successfully generated!");
-          
-          // Force refetch to get the updated app with chat_id
-          refetchApp().then(() => {
-            // Once the app is refreshed, also fetch chat messages
-            // Small timeout to ensure app data is updated first
-            setTimeout(() => refetchChat(), 500);
-          });
+        onSuccess: async (data: any) => {
+          try {
+            toast.dismiss(toastId);
+            toast.success("Generation started. Finalizing...");
+
+            const chatId = data?.chatId || app.chat_id;
+            if (!chatId) {
+              throw new Error('No chatId returned from generation');
+            }
+
+            // Poll getchat until ready
+            const maxAttempts = 60; // ~2 minutes at 2s interval
+            const intervalMs = 2000;
+            let attempt = 0;
+            let finalChat: any = null;
+
+            while (attempt < maxAttempts) {
+              attempt++;
+              try {
+                const res = await fetch(`/api/v0/getchat?chatId=${encodeURIComponent(chatId)}`);
+                if (res.ok) {
+                  const chatData = await res.json();
+                  const demoUrl = chatData?.demo || chatData?.latestVersion?.demoUrl || null;
+                  const status = chatData?.status || chatData?.latestVersionStatus || null;
+
+                  // Consider ready when demo is available or status signals completion
+                  if ((typeof status === 'string' && status.toLowerCase() === 'completed')) {
+                    finalChat = chatData;
+                    break;
+                  }
+                }
+                else {
+                  console.warn('[POLL] getchat not OK', { status: res.status });
+                }
+              } catch (e) {
+                // swallow transient polling errors
+                console.warn('[POLL] Error during polling', e);
+              }
+              await new Promise(r => setTimeout(r, intervalMs));
+            }
+
+            if (!finalChat) {
+              throw new Error('Timed out waiting for V0 to finish');
+            }
+
+            // Call complete route to finalize DB updates
+            const demo = finalChat?.demo || finalChat?.latestVersion?.demoUrl || null;
+            const versionId = finalChat?.latestVersion?.id || undefined;
+            const versionDemoUrl = finalChat?.latestVersion?.demoUrl || undefined;
+
+            
+            const completeRes = await fetch('/api/v0/complete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chatId, demo, versionId, versionDemoUrl })
+            });
+
+            // Wait briefly to allow DB commits to settle
+            await new Promise(r => setTimeout(r, 800));
+
+            // Refresh app and chat
+            const afterComplete = await refetchApp();
+            
+            setTimeout(() => {
+              refetchChat();
+              // Trigger a second refetch a bit later to avoid eventual consistency issues
+              setTimeout(() => {
+                refetchChat();
+              }, 800);
+            }, 400);
+
+            toast.success("App generation completed!");
+          } catch (err) {
+            console.error('❌ Finalization failed:', err);
+            toast.error("Failed to finalize app generation.");
+          } finally {
+            setIsGenerating(false);
+          }
         },
         onError: (error) => {
           console.error('❌ Generation failed:', error);
@@ -577,12 +639,13 @@ ${app.active_fields_text || ''}
       }
 
       // Use the getchat API route which uses v0.chats.getById
-      const response = await fetch(`/api/v0/getchat?chatId=${app.chat_id}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json"
+      const response = await fetch(`/api/v0/getchat?chatId=${app.chat_id}&t=${Date.now()}`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          cache: 'no-store'
         }
-      })
+      )
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -594,6 +657,12 @@ ${app.active_fields_text || ''}
       return data.messages || []
     },
     enabled: !!app?.chat_id, // Enabled whenever we have a chat_id
+    // Make the query resilient to transient errors and always fetch fresh data
+    retry: (failureCount, _error) => failureCount < 4,
+    retryDelay: (attempt) => Math.min(1500 * attempt, 5000),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   })
 
   // Send message mutation
@@ -927,6 +996,7 @@ ${app.active_fields_text || ''}
             messagesEndRef={messagesEndRef}
             app={app}
             onTabChange={setChatActiveTab}
+            isGenerating={isGenerating}
           />
         </div>
 

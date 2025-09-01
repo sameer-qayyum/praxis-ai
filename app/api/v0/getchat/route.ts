@@ -42,24 +42,53 @@ export async function GET(request: NextRequest) {
     }
     
     // Fetch chat messages using SDK
-    const chatData = await v0.chats.getById({
-      chatId
-    });
+    let chatData: any;
+    try {
+      chatData = await v0.chats.getById({ chatId });
+    } catch (err: any) {
+      const msg: string = err?.message || '';
+      // Gracefully handle transient propagation where the chat may not be immediately available
+      if (msg.includes('HTTP 404') || msg.toLowerCase().includes('chat not found')) {
+        const responseData = {
+          success: false,
+          chatId,
+          messages: [],
+          demo: null,
+          latestVersion: null,
+          status: 'provisioning',
+          latestVersionStatus: null,
+          transient: true
+        };
+        return NextResponse.json(responseData, {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+      }
+      throw err;
+    }
     
-    // Format messages for the client
-    const messages = chatData.messages.map((message: any) => ({
-      id: message.id,
-      role: message.role,
-      content: message.text || message.content || "",
-      created_at: message.created_at,
-      files: message.files || []
-    }));
 
-    // Return the formatted messages
-    return NextResponse.json({ 
+    const responseData = { 
       success: true,
       chatId: chatId,
-      messages: messages
+      messages: chatData.messages || [],
+      demo: chatData.demo || null, // Root level demo URL
+      latestVersion: chatData.latestVersion || null, // Includes demoUrl
+      // Expose status fields to clients for robust polling control
+      status: (chatData as any)?.status ?? null,
+      latestVersionStatus: (chatData as any)?.latestVersion?.status ?? null
+    };
+    // Return the complete chat data including demo URLs
+    // Add no-store headers to avoid client/proxy caching which can cause stale chat data
+    return NextResponse.json(responseData, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     });
     
   } catch (error: any) {
