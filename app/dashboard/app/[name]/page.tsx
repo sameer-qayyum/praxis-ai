@@ -799,6 +799,12 @@ ${app.active_fields_text || ''}
     },
     onSuccess: (data: any) => {
       toast.success(`Your app has been deployed to ${data.url}`)
+      // Optimistically update the app cache so UI updates immediately
+      queryClient.setQueryData(["app", name], (prev: any) =>
+        prev ? { ...prev, app_url: data.url, status: "deployed" } : prev
+      )
+      // Invalidate to confirm latest server state
+      queryClient.invalidateQueries({ queryKey: ["app", name] })
       setIsDeploying(false)
     },
     onError: (error: unknown) => {
