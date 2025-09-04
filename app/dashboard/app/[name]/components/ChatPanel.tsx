@@ -383,25 +383,7 @@ export const ChatPanel = ({
       )
     }
 
-    if (!appGuideData) {
-      return (
-        <div className="flex items-center justify-center h-full text-center py-12">
-          <div>
-            <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-sm mb-4">No guide available for this app</p>
-            <Button
-              onClick={startEditingGuide}
-              className="flex items-center gap-2"
-            >
-              <Edit3 className="h-4 w-4" />
-              Create Guide
-            </Button>
-            <p className="text-gray-400 text-xs mt-2">Add instructions and documentation for your app</p>
-          </div>
-        </div>
-      )
-    }
-
+    // Render editor first when editing, even if there is no existing guide yet
     if (isEditingGuide) {
       return (
         <div className="h-full flex flex-col p-4">
@@ -588,13 +570,36 @@ export const ChatPanel = ({
       )
     }
 
+    // Guard: if no guide data and not editing, show empty state instead of accessing null
+    if (!appGuideData && !isEditingGuide) {
+      return (
+        <div className="flex items-center justify-center h-full text-center py-12">
+          <div>
+            <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-sm mb-4">No guide available for this app</p>
+            <Button
+              onClick={startEditingGuide}
+              className="flex items-center gap-2"
+            >
+              <Edit3 className="h-4 w-4" />
+              Create Guide
+            </Button>
+            <p className="text-gray-400 text-xs mt-2">Add instructions and documentation for your app</p>
+          </div>
+        </div>
+      )
+    }
+
+    // At this point we know a guide exists and we're not editing
+    const guide = appGuideData as AppGuideData
+
     return (
       <div className="h-full overflow-auto p-4">
         <div className="space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 mb-2">{appGuideData.title}</h3>
-              <p className="text-sm text-gray-600">{appGuideData.description}</p>
+              <h3 className="font-semibold text-gray-900 mb-2">{guide.title}</h3>
+              <p className="text-sm text-gray-600">{guide.description}</p>
             </div>
             <Button
               size="sm"
@@ -610,7 +615,7 @@ export const ChatPanel = ({
           <div>
             <h4 className="font-medium text-gray-900 mb-3">Features</h4>
             <ul className="space-y-2">
-              {appGuideData.features.map((feature, index) => (
+              {guide.features.map((feature, index) => (
                 <li key={index} className="flex items-start gap-2 text-sm text-gray-600">
                   <span className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0" />
                   {feature}
@@ -620,9 +625,9 @@ export const ChatPanel = ({
           </div>
 
           <div>
-            <h4 className="font-medium text-gray-900 mb-3">{appGuideData.sheetSetup.title}</h4>
+            <h4 className="font-medium text-gray-900 mb-3">{guide.sheetSetup.title}</h4>
             <ul className="space-y-2">
-              {appGuideData.sheetSetup.instructions.map((instruction, index) => (
+              {guide.sheetSetup.instructions.map((instruction, index) => (
                 <li key={index} className="flex items-start gap-2 text-sm text-gray-600">
                   <span className="w-1.5 h-1.5 bg-green-600 rounded-full mt-2 flex-shrink-0" />
                   {instruction}
@@ -632,9 +637,9 @@ export const ChatPanel = ({
           </div>
 
           <div>
-            <h4 className="font-medium text-gray-900 mb-3">{appGuideData.examples.title}</h4>
+            <h4 className="font-medium text-gray-900 mb-3">{guide.examples.title}</h4>
             <ul className="space-y-2">
-              {appGuideData.examples.items.map((item, index) => (
+              {guide.examples.items.map((item, index) => (
                 <li key={index} className="flex items-start gap-2 text-sm text-gray-600">
                   <span className="w-1.5 h-1.5 bg-purple-600 rounded-full mt-2 flex-shrink-0" />
                   {item}
