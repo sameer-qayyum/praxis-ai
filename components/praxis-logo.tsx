@@ -39,14 +39,7 @@ export function PraxisLogo({
         className={cn(sizeClasses[size], "object-contain")}
         priority
       />
-      {showText && (
-        <span className={cn(
-          "font-bold text-praxis-700 hover:text-praxis-accent dark:text-praxis-300 dark:hover:text-praxis-accent transition-colors",
-          textSizeClasses[size]
-        )}>
-          Praxis AI
-        </span>
-      )}
+     
     </div>
   );
 
