@@ -273,6 +273,7 @@ export default function Home() {
             </div>
             <nav className="flex items-center gap-6 text-muted-foreground">
               <Link href="/about" className="hover:text-foreground transition-colors">About</Link>
+              <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
               <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
               <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>
             </nav>
