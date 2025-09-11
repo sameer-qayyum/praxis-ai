@@ -22,6 +22,7 @@ interface AppRequirementsDialogProps {
 export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
     email: '',
     appRequirements: '',
@@ -31,9 +32,39 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
 
   const supabase = createClient();
 
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    
+    // Email validation
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!emailRegex.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+    
+    // App requirements validation
+    if (!formData.appRequirements) {
+      newErrors.appRequirements = 'App requirements are required';
+    } else if (formData.appRequirements.length < 10) {
+      newErrors.appRequirements = 'Please provide at least 10 characters describing your app needs';
+    } else if (formData.appRequirements.length > 5000) {
+      newErrors.appRequirements = 'App requirements must be less than 5000 characters';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+    
     setIsSubmitting(true);
+    setErrors({});
 
     try {
       // Parse column names into array
@@ -77,9 +108,21 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
         onOpenChange(false);
       }, 3000);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting form:', error);
-      alert('There was an error submitting your request. Please try again.');
+      
+      // Handle specific database constraint errors
+      if (error?.message?.includes('email_format')) {
+        setErrors({ email: 'Please enter a valid email address' });
+      } else if (error?.message?.includes('app_requirements_length')) {
+        if (error.message.includes('app_requirements_length_max')) {
+          setErrors({ appRequirements: 'App requirements must be less than 5000 characters' });
+        } else {
+          setErrors({ appRequirements: 'Please provide at least 10 characters describing your app needs' });
+        }
+      } else {
+        setErrors({ general: 'There was an error submitting your request. Please try again.' });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -87,6 +130,10 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
   };
 
   if (isSuccess) {
@@ -143,6 +190,13 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* General Error */}
+          {errors.general && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm text-red-600 dark:text-red-400">{errors.general}</p>
+            </div>
+          )}
+          
           {/* Email */}
           <div className="space-y-2">
             <Label htmlFor="email" className="text-sm font-medium text-gray-800 dark:text-gray-200">Your email *</Label>
@@ -152,9 +206,14 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
               placeholder="your@email.com"
               value={formData.email}
               onChange={(e) => handleInputChange('email', e.target.value)}
-              className="h-10 border-2 focus:border-praxis-500 transition-colors"
+              className={`h-10 border-2 focus:border-praxis-500 transition-colors ${
+                errors.email ? 'border-red-300 dark:border-red-700' : ''
+              }`}
               required
             />
+            {errors.email && (
+              <p className="text-sm text-red-600 dark:text-red-400">{errors.email}</p>
+            )}
           </div>
 
           {/* App Requirements */}
@@ -165,12 +224,28 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
               placeholder="I need a customer dashboard where clients can view their orders..."
               value={formData.appRequirements}
               onChange={(e) => handleInputChange('appRequirements', e.target.value)}
-              className="min-h-[80px] border-2 focus:border-praxis-500 transition-colors resize-none"
+              className={`min-h-[80px] border-2 focus:border-praxis-500 transition-colors resize-none ${
+                errors.appRequirements ? 'border-red-300 dark:border-red-700' : ''
+              }`}
               required
             />
-            <p className="text-xs text-gray-600 dark:text-gray-400">
-              💡 Be specific about what you want your app to do
-            </p>
+            <div className="flex justify-between items-center">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                💡 Be specific about what you want your app to do (min 10 chars)
+              </p>
+              <p className={`text-xs ${
+                formData.appRequirements.length > 5000 
+                  ? 'text-red-500 dark:text-red-400' 
+                  : formData.appRequirements.length > 4500
+                    ? 'text-yellow-600 dark:text-yellow-400'
+                    : 'text-gray-500 dark:text-gray-400'
+              }`}>
+                {formData.appRequirements.length}/5000
+              </p>
+            </div>
+            {errors.appRequirements && (
+              <p className="text-sm text-red-600 dark:text-red-400">{errors.appRequirements}</p>
+            )}
           </div>
 
           {/* Sheet Column Names */}
@@ -215,8 +290,8 @@ export function AppRequirementsDialog({ open, onOpenChange }: AppRequirementsDia
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || !formData.email || !formData.appRequirements}
-              className="flex-1 h-10 font-medium bg-praxis-600 hover:bg-praxis-700 dark:bg-praxis-500 dark:hover:bg-praxis-600 shadow-lg hover:shadow-xl transition-all duration-200"
+              disabled={isSubmitting || !formData.email || !formData.appRequirements || Object.keys(errors).some(key => errors[key])}
+              className="flex-1 h-10 font-medium bg-praxis-600 hover:bg-praxis-700 dark:bg-praxis-500 dark:hover:bg-praxis-600 shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <div className="flex items-center gap-2">
